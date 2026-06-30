@@ -49,7 +49,6 @@ uploaded_file = st.sidebar.file_uploader(
     "Tải lên file Excel danh sách thuốc (.xlsx)", type=["xlsx"]
 )
 
-# Nếu người dùng chưa tải file lên, tự động tìm file mặc định trong thư mục
 if uploaded_file is None:
     default_excel = "danh_sach_thuoc_lieu_dung.xlsx"
     if os.path.exists(default_excel):
@@ -70,7 +69,7 @@ danh_sach_thuoc = sorted(thuoc_dict.keys())
 
 # --- GIAO DIỆN CHÍNH: CHIA THÀNH 2 TAB ---
 tab1, tab2 = st.tabs(
-    ["⚖️ Tính Liều Theo Cân Nặng", "🖊️ Tính Bút Tiêm Insulin & Ngày Dùng"]
+    ["⚖️ Tính Liều Theo Cân Nặng", "🖊️ Tính Số Lượng Bút Insulin Theo Ngày Kê"]
 )
 
 # ==============================================================================
@@ -84,10 +83,9 @@ with tab1:
         ten_thuoc_chon = st.selectbox(
             "1. Nhập/Chọn tên thuốc:",
             options=[""] + danh_sach_thuoc,
-            help="Gõ để tìm kiếm thuốc nhanh",
+            key="tab1_thuoc",
         )
 
-        # Lấy danh sách liều từ cột B dựa vào thuốc đã chọn
         cac_lieu_dung = []
         if ten_thuoc_chon:
             value_b = thuoc_dict.get(ten_thuoc_chon, "")
@@ -116,13 +114,11 @@ with tab1:
         st.subheader("📋 Kết quả đề nghị")
 
         if ten_thuoc_chon and can_nang > 0 and lieu_chon:
-            # Trích xuất số từ chuỗi liều dùng
             numbers = re.findall(r"[\d.]+", lieu_chon)
             if numbers:
                 lieu_dung_so = float(numbers[0])
                 tong_lieu = lieu_dung_so * can_nang
 
-                # Kiểm tra dạng liều /lần hay /ngày
                 if "ngày" in lieu_chon.lower():
                     tong_lieu_de_nghi = tong_lieu / 2
                 else:
@@ -130,13 +126,12 @@ with tab1:
 
                 lieu_theo_tuoi = "tuổi" in lieu_chon.lower()
 
-                # Hiển thị Kết quả tổng liều
                 if not lieu_theo_tuoi:
                     st.metric(label="Tổng liều tính toán:", value=f"{tong_lieu:.0f} mg")
                 else:
                     st.info("💡 Lưu ý: Xem liều dùng chi tiết theo tuổi.")
 
-                # Xử lý quy cách đóng gói (Cột C) để tìm hàm lượng gần nhất
+                # Xử lý quy cách (Cột C)
                 quy_cach = thuoc_quycach_dict.get(ten_thuoc_chon, "")
                 quy_cach_list = []
                 if quy_cach:
@@ -153,7 +148,6 @@ with tab1:
                 else:
                     gan_nhat = "chưa có cấu hình"
 
-                # Hiển thị Đề nghị phối thuốc
                 if not lieu_theo_tuoi:
                     if "ngày" in lieu_chon.lower():
                         st.success(
@@ -172,16 +166,23 @@ with tab1:
 
 
 # ==============================================================================
-# TAB 2: TÍNH SỐ LƯỢNG BÚT INSULIN
+# TAB 2: TÍNH SỐ LƯỢNG BÚT INSULIN (ĐÃ MẶC ĐỊNH 31 NGÀY)
 # ==============================================================================
 with tab2:
     col_in1, col_in2 = st.columns([2, 3])
 
     with col_in1:
-        st.subheader("Nhập liều tiêm")
-        lua_chon_thang = st.selectbox(
-            "Chọn thời gian cấp thuốc:", ["1 tháng", "2 tháng", "3 tháng"]
+        st.subheader("Nhập thông tin kê đơn")
+
+        # Đổi giá trị tham số value thành 31 ngày mặc định
+        so_ngay_muon_ke = st.number_input(
+            "Nhập số ngày muốn kê đơn (ngày):",
+            min_value=1,
+            max_value=365,
+            value=31,  # <--- Thay đổi ở đây
+            step=1,
         )
+
         tong_lieu_mot_cay_but = st.number_input(
             "Tổng số liều của 1 cây bút tiêm (đơn vị):", value=300, step=50
         )
@@ -199,45 +200,33 @@ with tab2:
         tong_lieu_ngay = lieu_sang + lieu_chieu
 
         if tong_lieu_ngay > 0:
-            so_thang = int(re.findall(r"\d+", lua_chon_thang)[0])
+            tong_lieu_can_thiet = so_ngay_muon_ke * tong_lieu_ngay
+            so_cay_but_tinh_duoc = tong_lieu_can_thiet / tong_lieu_mot_cay_but
 
-            # Tính toán logic số lượng giống hệt code gốc của bạn
-            if so_thang < 3:
-                so_cay_but_tinh_duoc = (
-                    so_thang * tong_lieu_ngay * 30
-                ) / tong_lieu_mot_cay_but
-                if so_cay_but_tinh_duoc.is_integer():
-                    so_ngay_dung = so_thang * 30
-                    so_cay_but_dieu_chinh = so_cay_but_tinh_duoc
+            if so_cay_but_tinh_duoc.is_integer():
+                so_cay_but_dieu_chinh = so_cay_but_tinh_duoc
+                so_ngay_dung = so_ngay_muon_ke
+            else:
+                if so_ngay_muon_ke >= 90:
+                    so_cay_but_dieu_chinh = math.floor(so_cay_but_tinh_duoc)
+                    if so_cay_but_dieu_chinh < 1:
+                        so_cay_but_dieu_chinh = 1
                 else:
                     so_cay_but_dieu_chinh = math.ceil(so_cay_but_tinh_duoc)
-                    so_ngay_dung = math.floor(
-                        (so_cay_but_dieu_chinh * tong_lieu_mot_cay_but)
-                        / tong_lieu_ngay
-                    )
-            elif so_thang == 3:
-                so_cay_but_tinh_duoc = (
-                    so_thang * tong_lieu_ngay * 30
-                ) / tong_lieu_mot_cay_but
-                if so_cay_but_tinh_duoc.is_integer():
-                    so_ngay_dung = so_thang * 30
-                    so_cay_but_dieu_chinh = so_cay_but_tinh_duoc
-                else:
-                    so_cay_but_dieu_chinh = math.floor(so_cay_but_tinh_duoc)
-                    so_ngay_dung = math.floor(
-                        (so_cay_but_dieu_chinh * tong_lieu_mot_cay_but)
-                        / tong_lieu_ngay
-                    )
+
+                so_ngay_dung = math.floor(
+                    (so_cay_but_dieu_chinh * tong_lieu_mot_cay_but)
+                    / tong_lieu_ngay
+                )
 
             sang_mot_chieu_mot = so_ngay_dung * 2
             sang_mot_trua_mot_chieu_mot = so_ngay_dung * 3
             sang_hai_chieu_hai = so_ngay_dung * 4
             sang_ba_chieu_ba = so_ngay_dung * 6
 
-            # Hiển thị bảng kết quả trực quan dạng Text Area lớn như code gốc
             ket_qua_text = (
                 f"🩺🖊️ Số cây bút cần kê: {math.floor(so_cay_but_dieu_chinh)} bút\n"
-                f"📆 Số ngày dùng: {so_ngay_dung} ngày\n"
+                f"📆 Số ngày dùng thực tế: {so_ngay_dung} ngày (Dự kiến kê: {so_ngay_muon_ke} ngày)\n"
                 f"💊💊 Sáng 1 Chiều 1: {sang_mot_chieu_mot} đơn vị\n"
                 f"💊💊💊💊 Sáng 2 Chiều 2: {sang_hai_chieu_hai} đơn vị\n"
                 f"💊💊💊 Sáng 1 Trưa 1 Chiều 1: {sang_mot_trua_mot_chieu_mot} đơn vị\n"
