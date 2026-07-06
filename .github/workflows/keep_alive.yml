@@ -10,5 +10,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send HTTP GET request to Streamlit
-        run: |
-          curl -sL -w "%{http_code}" "https://tinhlieu.streamlit.app" -o /dev/null
+        run: curl -sL -w "%{http_code}" https://tinhlieu.streamlit.app -o /dev/null
