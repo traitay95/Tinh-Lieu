@@ -2,9 +2,7 @@ name: Keep Streamlit App Alive
 
 on:
   schedule:
-    # Chạy mỗi 12 tiếng một lần (vào lúc 00:00 và 12:00 UTC)
-    - cron: '0 */6 * * *'
-  # Cho phép bạn bấm nút chạy thử thủ công trên giao diện GitHub
+    - cron: '0 */2 * * *'
   workflow_dispatch:
 
 jobs:
@@ -14,4 +12,3 @@ jobs:
       - name: Send HTTP GET request to Streamlit
         run: |
           curl -sL -w "%{http_code}" "https://tinhlieu.streamlit.app" -o /dev/null
-
