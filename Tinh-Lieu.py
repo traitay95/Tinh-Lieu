@@ -67,15 +67,72 @@ else:
 danh_sach_thuoc = sorted(thuoc_dict.keys())
 
 
-# --- GIAO DIỆN CHÍNH: CHIA THÀNH 2 TAB ---
-tab1, tab2 = st.tabs(
-    ["⚖️ Tính Liều Theo Cân Nặng", "🖊️ Tính Số Lượng Bút Insulin Theo Ngày Kê"]
+# --- THAY THẾ ST.TABS BẰNG THANH ĐIỀU HƯỚNG RADIO CỠ LỚN ---
+if "menu_selection" not in st.session_state:
+    st.session_state["menu_selection"] = "⚖️ Tính Liều Theo Cân Nặng"
+
+# CSS tùy chỉnh để phóng to Tiêu đề, chữ trong nút và tạo kiểu dáng thanh Tab ngang
+st.markdown(
+    """
+    <style>
+    /* 1. Phóng to Tiêu đề "Chọn chức năng tính toán:" */
+    div.stRadio > label {
+        font-size: 24px !important;
+        font-weight: bold !important;
+        color: #1f77b4;
+        padding-bottom: 12px;
+    }
+    
+    /* 2. Ẩn dấu chấm tròn mặc định của nút Radio */
+    div[role="radiogroup"] span[data-baseweb="radio"] {
+        display: none !important;
+    }
+    
+    /* 3. Phóng to cỡ chữ bên trong các nút tùy chọn */
+    div[role="radiogroup"] label p {
+        font-size: 22px !important;
+        font-weight: bold !important;
+        margin: 0px !important;
+    }
+
+    /* 4. Tạo hình khối, đổ bóng nhẹ và khoảng cách cho các nút nằm ngang */
+    div[role="radiogroup"] label {
+        background-color: #f0f2f6;
+        padding: 14px 35px !important;
+        border-radius: 10px;
+        margin-right: 15px;
+        box-shadow: 2px 2px 6px rgba(0,0,0,0.08);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: 2px solid transparent;
+    }
+    
+    /* 5. Hiệu ứng đổi màu và nảy nhẹ khi di chuột vào nút */
+    div[role="radiogroup"] label:hover {
+        background-color: #e6f2ff;
+        transform: translateY(-2px);
+        border: 2px solid #1f77b4;
+    }
+    </style>
+    """, 
+    unsafe_allow_html=True
 )
 
+# Thanh điều hướng dạng Radio chính chủ sắp xếp theo chiều ngang (horizontal=True)
+chon_tab = st.radio(
+    "📌 Chọn chức năng tính toán:",
+    options=["⚖️ Tính Liều Theo Cân Nặng", "🖊️ Tính Số Lượng Bút Insulin Theo Ngày Kê"],
+    key="menu_selection",
+    horizontal=True
+)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+
 # ==============================================================================
-# TAB 1: TÍNH LIỀU THEO CÂN NẶNG
+# CHỨC NĂNG 1: TÍNH LIỀU THEO CÂN NẶNG
 # ==============================================================================
-with tab1:
+if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
     col1, col2 = st.columns([2, 3])
 
     with col1:
@@ -166,20 +223,19 @@ with tab1:
 
 
 # ==============================================================================
-# TAB 2: TÍNH SỐ LƯỢNG BÚT INSULIN (ĐÃ MẶC ĐỊNH 31 NGÀY)
+# CHỨC NĂNG 2: TÍNH SỐ LƯỢNG BÚT INSULIN
 # ==============================================================================
-with tab2:
+elif chon_tab == "🖊️ Tính Số Lượng Bút Insulin Theo Ngày Kê":
     col_in1, col_in2 = st.columns([2, 3])
 
     with col_in1:
         st.subheader("Nhập thông tin kê đơn")
 
-        # Đổi giá trị tham số value thành 31 ngày mặc định
         so_ngay_muon_ke = st.number_input(
             "Nhập số ngày muốn kê đơn (ngày):",
             min_value=1,
             max_value=365,
-            value=31,  # <--- Thay đổi ở đây
+            value=31,
             step=1,
         )
 
