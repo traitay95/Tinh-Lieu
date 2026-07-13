@@ -1,13 +1,1 @@
-name: Keep Streamlit App Alive
 
-on:
-  schedule:
-    - cron: '0 */2 * * *'
-  workflow_dispatch:
-
-jobs:
-  ping:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Send HTTP GET request to Streamlit
-        run: curl -sL -w "%{http_code}" https://tinhlieu.streamlit.app -o /dev/null
