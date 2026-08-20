@@ -282,7 +282,8 @@ if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
     
             with st.expander("ℹ️ **Thông tin Chỉ định & Chống chỉ định**", expanded=True):
                 if chi_dinh:
-                    st.markdown(f"✅ (Lưu ý: Chỉ định & Chống chỉ định còn phụ thuộc vào dạng bào chế, đường dùng từng loại thuốc, thông tin chỉ mang tính chất tham khảo!) \n **Chỉ định:** {chi_dinh}")
+                    st.markdown(f"✅ (Lưu ý: Chỉ định & Chống chỉ định còn phụ thuộc vào dạng bào chế, đường dùng từng loại thuốc, thông tin chỉ mang tính chất tham khảo!)\n"
+                                f"**Chỉ định:** {chi_dinh}")
                 else:
                     st.caption("✅ **Chỉ định:** Chưa có dữ liệu")
     
