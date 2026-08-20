@@ -234,10 +234,18 @@ if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
                         phuong_an_list.append({"qc": qc, "he_so": 0.5, "mg": qc * 0.5, "mo_ta": "1/2 viên/gói"})
                         phuong_an_list.append({"qc": qc, "he_so": 1.0, "mg": qc * 1.0, "mo_ta": "1 viên/gói"})
                         phuong_an_list.append({"qc": qc, "he_so": 2.0, "mg": qc * 2.0, "mo_ta": "2 viên/gói"})
-    
-                    # Tìm phương án có tổng mg gần với target nhất
-                    best = min(phuong_an_list, key=lambda p: abs(p["mg"] - tong_lieu_target))
-    
+                
+                    # Định nghĩa độ ưu tiên cho hệ số: 1.0 (ưu tiên 1) -> 0.5 (ưu tiên 2) -> 2.0 (ưu tiên 3)
+                    priority_map = {1.0: 1, 0.5: 2, 2.0: 3}
+                
+                    # Sắp xếp so sánh theo 2 tiêu chí: 
+                    # 1. Độ lệch mg nhỏ nhất abs(p["mg"] - tong_lieu_target)
+                    # 2. Nếu độ lệch bằng nhau -> Ưu tiên hệ số theo priority_map
+                    best = min(
+                        phuong_an_list, 
+                        key=lambda p: (abs(p["mg"] - tong_lieu_target), priority_map[p["he_so"]])
+                    )
+                
                     qc_mg = int(best["qc"]) if best["qc"].is_integer() else best["qc"]
                     he_so = best["he_so"]
     
