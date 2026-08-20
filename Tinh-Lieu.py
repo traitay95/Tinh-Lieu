@@ -15,7 +15,7 @@ st.title("🩺 Công Cụ Tính Liều Thuốc & Bút Tiêm Insulin")
 st.markdown("---")
 
 
-# --- HÀM ĐỌC DỮ LIỆU EXCEL ---
+# --- HÀM ĐỌC DỮ LIỆU EXCEL (ĐÃ THÊM CỘT D VÀ E) ---
 @st.cache_data(show_spinner=False)
 def load_excel_data(uploaded_file):
     try:
@@ -24,23 +24,42 @@ def load_excel_data(uploaded_file):
 
         thuoc_dict = {}
         thuoc_quycach_dict = {}
+        thuoc_chidinh_dict = {}
+        thuoc_chongchidinh_dict = {}
 
         for row in ws.iter_rows(min_row=1, values_only=True):
-            if row[0]:  # Cột A có dữ liệu (Tên thuốc)
+            if row and row[0]:  # Cột A có dữ liệu (Tên thuốc)
                 key = str(row[0]).strip()
+
                 # Cột B: Liều dùng
                 thuoc_dict[key] = (
                     str(row[1]).strip() if len(row) > 1 and row[1] else ""
                 )
+
                 # Cột C: Quy cách
                 thuoc_quycach_dict[key] = (
                     str(row[2]).strip() if len(row) > 2 and row[2] else ""
                 )
 
-        return thuoc_dict, thuoc_quycach_dict
+                # Cột D: Chỉ định
+                thuoc_chidinh_dict[key] = (
+                    str(row[3]).strip() if len(row) > 3 and row[3] else ""
+                )
+
+                # Cột E: Chống chỉ định
+                thuoc_chongchidinh_dict[key] = (
+                    str(row[4]).strip() if len(row) > 4 and row[4] else ""
+                )
+
+        return (
+            thuoc_dict,
+            thuoc_quycach_dict,
+            thuoc_chidinh_dict,
+            thuoc_chongchidinh_dict,
+        )
     except Exception as e:
         st.error(f"❌ Lỗi đọc file Excel: {e}")
-        return {}, {}
+        return {}, {}, {}, {}
 
 
 # --- KHU VỰC CẬP NHẬT FILE EXCEL ---
@@ -53,49 +72,56 @@ if uploaded_file is None:
     default_excel = "danh_sach_thuoc_lieu_dung.xlsx"
     if os.path.exists(default_excel):
         with open(default_excel, "rb") as f:
-            thuoc_dict, thuoc_quycach_dict = load_excel_data(f)
+            (
+                thuoc_dict,
+                thuoc_quycach_dict,
+                thuoc_chidinh_dict,
+                thuoc_chongchidinh_dict,
+            ) = load_excel_data(f)
         st.sidebar.success("✅ Đang sử dụng file Excel mặc định tại máy.")
     else:
         st.sidebar.warning(
             "⚠️ Không tìm thấy dữ liệu. Vui lòng kéo thả file Excel vào đây!"
         )
-        thuoc_dict, thuoc_quycach_dict = {}, {}
+        (
+            thuoc_dict,
+            thuoc_quycach_dict,
+            thuoc_chidinh_dict,
+            thuoc_chongchidinh_dict,
+        ) = ({}, {}, {}, {})
 else:
-    thuoc_dict, thuoc_quycach_dict = load_excel_data(uploaded_file)
+    (
+        thuoc_dict,
+        thuoc_quycach_dict,
+        thuoc_chidinh_dict,
+        thuoc_chongchidinh_dict,
+    ) = load_excel_data(uploaded_file)
     st.sidebar.success("🎉 Đã cập nhật dữ liệu từ file mới thành công!")
 
 danh_sach_thuoc = sorted(thuoc_dict.keys())
 
 
-# --- THAY THẾ ST.TABS BẰNG THANH ĐIỀU HƯỚNG RADIO CỠ LỚN ---
+# --- THANH ĐIỀU HƯỚNG RADIO CỠ LỚN ---
 if "menu_selection" not in st.session_state:
     st.session_state["menu_selection"] = "⚖️ Tính Liều Theo Cân Nặng"
 
-# CSS tùy chỉnh để phóng to Tiêu đề, chữ trong nút và tạo kiểu dáng thanh Tab ngang
 st.markdown(
     """
     <style>
-    /* 1. Phóng to Tiêu đề "Chọn chức năng tính toán:" */
     div.stRadio > label {
         font-size: 24px !important;
         font-weight: bold !important;
         color: #1f77b4;
         padding-bottom: 12px;
     }
-    
-    /* 2. Ẩn dấu chấm tròn mặc định của nút Radio */
     div[role="radiogroup"] span[data-baseweb="radio"] {
         display: none !important;
     }
-    
-    /* 3. Phóng to cỡ chữ bên trong các nút tùy chọn */
     div[role="radiogroup"] label p {
         font-size: 22px !important;
         font-weight: bold !important;
         margin: 0px !important;
     }
-
-    /* 4. Tạo hình khối, đổ bóng nhẹ và khoảng cách cho các nút nằm ngang */
     div[role="radiogroup"] label {
         background-color: #f0f2f6;
         padding: 14px 35px !important;
@@ -106,24 +132,24 @@ st.markdown(
         transition: all 0.2s ease;
         border: 2px solid transparent;
     }
-    
-    /* 5. Hiệu ứng đổi màu và nảy nhẹ khi di chuột vào nút */
     div[role="radiogroup"] label:hover {
         background-color: #e6f2ff;
         transform: translateY(-2px);
         border: 2px solid #1f77b4;
     }
     </style>
-    """, 
-    unsafe_allow_html=True
+    """,
+    unsafe_allow_html=True,
 )
 
-# Thanh điều hướng dạng Radio chính chủ sắp xếp theo chiều ngang (horizontal=True)
 chon_tab = st.radio(
     "📌 Chọn chức năng tính toán:",
-    options=["⚖️ Tính Liều Theo Cân Nặng", "🖊️ Tính Số Lượng Bút Insulin Theo Ngày Kê"],
+    options=[
+        "⚖️ Tính Liều Theo Cân Nặng",
+        "🖊️ Tính Số Lượng Bút Insulin Theo Ngày Kê",
+    ],
     key="menu_selection",
-    horizontal=True
+    horizontal=True,
 )
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -153,9 +179,11 @@ if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
 
         lieu_chon = st.selectbox(
             "2. Chọn liều dùng tương ứng:",
-            options=cac_lieu_dung
-            if cac_lieu_dung
-            else ["(Vui lòng chọn thuốc trước)"],
+            options=(
+                cac_lieu_dung
+                if cac_lieu_dung
+                else ["(Vui lòng chọn thuốc trước)"]
+            ),
         )
 
         can_nang = st.number_input(
@@ -169,6 +197,25 @@ if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
 
     with col2:
         st.subheader("📋 Kết quả đề nghị")
+
+        if ten_thuoc_chon:
+            # Lấy thông tin Chỉ định (Cột D) và Chống chỉ định (Cột E)
+            chi_dinh = thuoc_chidinh_dict.get(ten_thuoc_chon, "")
+            chong_chi_dinh = thuoc_chongchidinh_dict.get(ten_thuoc_chon, "")
+
+            # Hiển thị thông tin tra cứu lâm sàng
+            with st.expander("ℹ️ **Thông tin Chỉ định & Chống chỉ định**", expanded=True):
+                if chi_dinh:
+                    st.markdown(f"✅ **Chỉ định:** {chi_dinh}")
+                else:
+                    st.caption("✅ **Chỉ định:** Chưa có dữ liệu")
+
+                if chong_chi_dinh:
+                    st.markdown(f"🚫 **Chống chỉ định:** :red[{chong_chi_dinh}]")
+                else:
+                    st.caption("🚫 **Chống chỉ định:** Chưa có dữ liệu")
+
+            st.markdown("---")
 
         if ten_thuoc_chon and can_nang > 0 and lieu_chon:
             numbers = re.findall(r"[\d.]+", lieu_chon)
@@ -184,7 +231,9 @@ if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
                 lieu_theo_tuoi = "tuổi" in lieu_chon.lower()
 
                 if not lieu_theo_tuoi:
-                    st.metric(label="Tổng liều tính toán:", value=f"{tong_lieu:.0f} mg")
+                    st.metric(
+                        label="Tổng liều tính toán:", value=f"{tong_lieu:.0f} mg"
+                    )
                 else:
                     st.info("💡 Lưu ý: Xem liều dùng chi tiết theo tuổi.")
 
@@ -257,7 +306,9 @@ elif chon_tab == "🖊️ Tính Số Lượng Bút Insulin Theo Ngày Kê":
 
         if tong_lieu_ngay > 0:
             tong_lieu_can_thiet = so_ngay_muon_ke * tong_lieu_ngay
-            so_cay_but_tinh_duoc = tong_lieu_can_thiet / tong_lieu_mot_cay_but
+            so_cay_but_tinh_duoc = (
+                tong_lieu_can_thiet / tong_lieu_mot_cay_but
+            )
 
             if so_cay_but_tinh_duoc.is_integer():
                 so_cay_but_dieu_chinh = so_cay_but_tinh_duoc
