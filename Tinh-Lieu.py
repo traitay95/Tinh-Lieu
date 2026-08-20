@@ -208,7 +208,7 @@ if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
                 if not lieu_theo_tuoi:
                     if "ngày" in lieu_chon.lower():
                         st.success(
-                            f"👉 **Đề nghị:** Dùng Sáng 1 viên - Chiều 1 viên loại **{gan_nhat} mg**"
+                            f"👉 Nếu dùng ngày 2 lần **Đề nghị:** Dùng Sáng 1 viên - Chiều 1 viên loại **{gan_nhat} mg**"
                         )
                     else:
                         st.success(
@@ -283,10 +283,11 @@ elif chon_tab == "🖊️ Tính Số Lượng Bút Insulin Theo Ngày Kê":
             ket_qua_text = (
                 f"🩺🖊️ Số cây bút cần kê: {math.floor(so_cay_but_dieu_chinh)} bút\n"
                 f"📆 Số ngày dùng thực tế: {so_ngay_dung} ngày (Dự kiến kê: {so_ngay_muon_ke} ngày)\n"
-                f"💊💊 Sáng 1 Chiều 1: {sang_mot_chieu_mot} đơn vị\n"
-                f"💊💊💊💊 Sáng 2 Chiều 2: {sang_hai_chieu_hai} đơn vị\n"
-                f"💊💊💊 Sáng 1 Trưa 1 Chiều 1: {sang_mot_trua_mot_chieu_mot} đơn vị\n"
-                f"💊💊💊💊💊💊 Sáng 2 Trưa 2 Chiều 2 [Sáng 3 Chiều 3]: {sang_ba_chieu_ba} đơn vị"
+                f"Các thuốc kèm theo trong đơn nếu có\n"
+                f"💊💊 Sáng 1 Chiều 1: {sang_mot_chieu_mot} viên/gói\n"
+                f"💊💊💊💊 Sáng 2 Chiều 2: {sang_hai_chieu_hai} viên/gói\n"
+                f"💊💊💊 Sáng 1 Trưa 1 Chiều 1: {sang_mot_trua_mot_chieu_mot} viên/gói\n"
+                f"💊💊💊💊💊💊 Sáng 2 Trưa 2 Chiều 2 [Sáng 3 Chiều 3]: {sang_ba_chieu_ba} viên/gói"
             )
 
             st.text_area(
