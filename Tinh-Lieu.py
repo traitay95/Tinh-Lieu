@@ -15,7 +15,7 @@ st.title("🩺 Công Cụ Tính Liều Thuốc & Bút Tiêm Insulin")
 st.markdown("---")
 
 
-# --- HÀM ĐỌC DỮ LIỆU EXCEL (ĐÃ THÊM CỘT D VÀ E) ---
+# --- HÀM ĐỌC DỮ LIỆU EXCEL ---
 @st.cache_data(show_spinner=False)
 def load_excel_data(uploaded_file):
     try:
@@ -156,7 +156,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 
 # ==============================================================================
-# CHỨC NĂNG 1: TÍNH LIỀU THEO CÂN NẶNG
+# CHỨC NĂNG 1: TÍNH LIỀU THEO CÂN NẶNG (ĐÃ TỐI ƯU THÔNG MINH CỘT C)
 # ==============================================================================
 if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
     col1, col2 = st.columns([2, 3])
@@ -199,11 +199,9 @@ if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
         st.subheader("📋 Kết quả đề nghị")
 
         if ten_thuoc_chon:
-            # Lấy thông tin Chỉ định (Cột D) và Chống chỉ định (Cột E)
             chi_dinh = thuoc_chidinh_dict.get(ten_thuoc_chon, "")
             chong_chi_dinh = thuoc_chongchidinh_dict.get(ten_thuoc_chon, "")
 
-            # Hiển thị thông tin tra cứu lâm sàng
             with st.expander("ℹ️ **Thông tin Chỉ định & Chống chỉ định**", expanded=True):
                 if chi_dinh:
                     st.markdown(f"✅ **Chỉ định:** {chi_dinh}")
@@ -222,12 +220,10 @@ if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
             if numbers:
                 lieu_dung_so = float(numbers[0])
                 tong_lieu = lieu_dung_so * can_nang
-
-                if "ngày" in lieu_chon.lower():
-                    tong_lieu_de_nghi = tong_lieu / 2
-                else:
-                    tong_lieu_de_nghi = tong_lieu
-
+                is_lan_dung = "ngày" in lieu_chon.lower()
+                
+                # Nếu chuỗi có từ "ngày" -> Chia 2 để ra liều dùng 1 lần (cho Sáng - Chiều)
+                tong_lieu_target = tong_lieu / 2 if is_lan_dung else tong_lieu
                 lieu_theo_tuoi = "tuổi" in lieu_chon.lower()
 
                 if not lieu_theo_tuoi:
@@ -237,34 +233,49 @@ if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
                 else:
                     st.info("💡 Lưu ý: Xem liều dùng chi tiết theo tuổi.")
 
-                # Xử lý quy cách (Cột C)
+                # Xử lý quy cách thông minh (Chia 2, Giữ nguyên, Nhân 2)
                 quy_cach = thuoc_quycach_dict.get(ten_thuoc_chon, "")
-                quy_cach_list = []
+                quy_cach_base = []
                 if quy_cach:
-                    quy_cach_list = [
-                        int(x.strip())
+                    quy_cach_base = [
+                        float(x.strip())
                         for x in quy_cach.split(";")
-                        if x.strip().isdigit()
+                        if x.strip().replace(".", "", 1).isdigit()
                     ]
 
-                if quy_cach_list:
-                    gan_nhat = min(
-                        quy_cach_list, key=lambda x: abs(x - tong_lieu_de_nghi)
-                    )
-                else:
-                    gan_nhat = "chưa có cấu hình"
+                if quy_cach_base:
+                    phuong_an_list = []
+                    # Tạo danh sách các phương án cho từng hàm lượng base
+                    for qc in quy_cach_base:
+                        phuong_an_list.append({"qc": qc, "he_so": 0.5, "mg": qc * 0.5, "mo_ta": "1/2 viên/gói"})
+                        phuong_an_list.append({"qc": qc, "he_so": 1.0, "mg": qc * 1.0, "mo_ta": "1 viên/gói"})
+                        phuong_an_list.append({"qc": qc, "he_so": 2.0, "mg": qc * 2.0, "mo_ta": "2 viên/gói"})
 
-                if not lieu_theo_tuoi:
-                    if "ngày" in lieu_chon.lower():
-                        st.success(
-                            f"👉 Nếu dùng ngày 2 lần **Đề nghị:** Dùng Sáng 1 viên - Chiều 1 viên loại **{gan_nhat} mg**"
-                        )
+                    # Tìm phương án có tổng mg gần với target nhất
+                    best = min(phuong_an_list, key=lambda p: abs(p["mg"] - tong_lieu_target))
+
+                    qc_mg = int(best["qc"]) if best["qc"].is_integer() else best["qc"]
+                    he_so = best["he_so"]
+
+                    if not lieu_theo_tuoi:
+                        if is_lan_dung:
+                            if he_so == 0.5:
+                                st.success(f"👉 **Đề nghị:** Dùng **Sáng 1/2 - Chiều 1/2** loại **{qc_mg} mg**")
+                            elif he_so == 1.0:
+                                st.success(f"👉 **Đề nghị:** Dùng **Sáng 1 - Chiều 1** loại **{qc_mg} mg**")
+                            elif he_so == 2.0:
+                                st.success(f"👉 **Đề nghị:** Dùng **Sáng 2 - Chiều 2** loại **{qc_mg} mg**")
+                        else:
+                            if he_so == 0.5:
+                                st.success(f"👉 **Đề nghị:** Một lần dùng **1/2 viên/gói** loại **{qc_mg} mg**")
+                            elif he_so == 1.0:
+                                st.success(f"👉 **Đề nghị:** Một lần dùng **1 viên/gói** loại **{qc_mg} mg**")
+                            elif he_so == 2.0:
+                                st.success(f"👉 **Đề nghị:** Một lần dùng **2 viên/gói** loại **{qc_mg} mg**")
                     else:
-                        st.success(
-                            f"👉 **Đề nghị:** Một lần dùng là **{gan_nhat} mg**"
-                        )
+                        st.warning(f"👉 **Đề nghị:** {lieu_chon}")
                 else:
-                    st.warning(f"👉 **Đề nghị:** {lieu_chon}")
+                    st.warning("⚠️ Chưa có cấu hình quy cách (Cột C) trong file Excel.")
         else:
             st.info(
                 "Vui lòng chọn thuốc, chọn liều và nhập cân nặng lớn hơn 0 để xem kết quả tính toán."
