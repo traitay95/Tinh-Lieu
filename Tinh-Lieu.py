@@ -16,27 +16,49 @@ import streamlit as st
 FOLDER_ID = "1GbnN63XfIc1UmR_2XW8LPePpFxvBB__e"
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 EXCEL_FILE_NAME = "danh_sach_thuoc_lieu_dung.xlsx"
-
+# 1. Nhúng trực tiếp cấu hình OAuth Credentials vào code
+CLIENT_CONFIG = {
+    "installed": {
+        "client_id": "976291028498-mkqsg7fs123gt1hjs8kh23epmqklq31s.apps.googleusercontent.com",
+        "project_id": "data-508701",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_secret": "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",
+        "redirect_uris": ["http://localhost"]
+    }
+}
+TOKEN_PATH = 'token.json'
 
 def get_drive_service():
     creds = None
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+    
+    # Đọc token đăng nhập cũ nếu có
+    if os.path.exists(TOKEN_PATH):
+        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+    
+    # Nếu chưa đăng nhập hoặc token hết hạn
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            if os.path.exists("credentials.json"):
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    "credentials.json", SCOPES
-                )
-                creds = flow.run_local_server(port=0)
-                with open("token.json", "w") as token:
-                    token.write(creds.to_json())
-            else:
-                return None
-    return build("drive", "v3", credentials=creds)
+            # Khởi tạo Auth Flow trực tiếp từ dict CLIENT_CONFIG mà không cần file credentials.json
+            flow = InstalledAppFlow.from_client_config(CLIENT_CONFIG, SCOPES)
+            creds = flow.run_local_server(port=0)
+            
+        # Lưu phiên đăng nhập vào token.json để lần sau không phải bấm đăng nhập lại
+        with open(TOKEN_PATH, 'w') as token:
+            token.write(creds.to_json())
 
+    return build('drive', 'v3', credentials=creds)
+
+# Chạy thử kết nối
+if __name__ == '__main__':
+    try:
+        service = get_drive_service()
+        print("✅ Kết nối Google Drive thành công mà không cần file credentials.json!")
+    except Exception as e:
+        print(f"❌ Lỗi kết nối: {e}")
 
 def search_file_in_folder(service, filename, folder_id):
     """Tìm file theo tên trong FOLDER_ID cụ thể."""
