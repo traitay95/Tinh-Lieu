@@ -1,11 +1,9 @@
 import io
 import json
 import math
-import os
 import re
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 import openpyxl
@@ -16,25 +14,6 @@ import streamlit as st
 FOLDER_ID = "1GbnN63XfIc1UmR_2XW8LPePpFxvBB__e"
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 EXCEL_FILE_NAME = "danh_sach_thuoc_lieu_dung.xlsx"
-
-# 1. Nhúng trực tiếp cấu hình OAuth Credentials vào code
-CLIENT_CONFIG = {
-    "web": {
-        "client_id": "122437508128-pfb414pti5bk56julsf4btbtmo4blubs.apps.googleusercontent.com",
-        "project_id": "lichtuan-2b316",
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_secret": "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",
-        "redirect_uris": [
-            "http://localhost",
-            "http://localhost/",
-            "http://localhost:8080/",
-            "http://127.0.0.1",
-            "https://tinhlieu.streamlit.app/",
-        ],
-    }
-}
 
 
 @st.cache_resource
@@ -232,23 +211,6 @@ danh_sach_thuoc = sorted(thuoc_dict.keys())
 # --- MENU CHỨC NĂNG ---
 if "menu_selection" not in st.session_state:
     st.session_state["menu_selection"] = "⚖️ Tính Liều Theo Cân Nặng"
-
-st.markdown(
-    """
-    <style>
-    div.stRadio > label { font-size: 24px !important; font-weight: bold !important; color: #1f77b4; padding-bottom: 12px; }
-    div[role="radiogroup"] span[data-baseweb="radio"] { display: none !important; }
-    div[role="radiogroup"] label p { font-size: 20px !important; font-weight: bold !important; margin: 0px !important; }
-    div[role="radiogroup"] label {
-        background-color: #f0f2f6; padding: 12px 25px !important;
-        border-radius: 10px; margin-right: 10px; box-shadow: 2px 2px 6px rgba(0,0,0,0.08);
-        cursor: pointer; transition: all 0.2s ease; border: 2px solid transparent;
-    }
-    div[role="radiogroup"] label:hover { background-color: #e6f2ff; transform: translateY(-2px); border: 2px solid #1f77b4; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
 chon_tab = st.radio(
     "📌 Chọn chức năng:",
@@ -493,7 +455,7 @@ elif chon_tab == "🖊️ Tính Số Lượng Bút Insulin Theo Ngày Kê":
 
 
 # ==============================================================================
-# CHỨC NĂNG 3: TRANG THÊM HOẠT CHẤT & BIỆT DƯỢC (CÓ BẢO VỆ MẬT KHẨU)
+# CHỨC NĂNG 3: TRANG THÊM/CẬP NHẬT HOẠT CHẤT & BIỆT DƯỢC
 # ==============================================================================
 elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
     st.subheader("🔒 Đăng nhập hệ thống quản lý")
@@ -521,18 +483,31 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
         st.markdown("---")
         st.subheader("➕ Thêm mới / Cập nhật Thuốc & Biệt dược")
 
-        # --- HÀM CALLBACK KHI CHỌN HOẠT CHẤT TỪ COMBOBOX ---
-        def on_hoat_chat_change():
-            selected = st.session_state.get("selected_hoat_chat_combo", "")
-            if selected and selected != "-- Nhập tên hoạt chất mới --":
-                st.session_state["edit_hoat_chat_name"] = selected
-                st.session_state["edit_lieu_dung"] = thuoc_dict.get(selected, "")
-                st.session_state["edit_quy_cach"] = thuoc_quycach_dict.get(selected, "")
-                st.session_state["edit_chi_dinh"] = thuoc_chidinh_dict.get(selected, "")
-                st.session_state["edit_chong_chi_dinh"] = thuoc_chongchidinh_dict.get(selected, "")
+        # --- TÍCH HỢP SELECTION VÀ CHỈNH SỬA TÊN HOẠT CHẤT CÙNG LÚC ---
+        if "edit_hoat_chat_name" not in st.session_state:
+            st.session_state["edit_hoat_chat_name"] = ""
+        if "edit_lieu_dung" not in st.session_state:
+            st.session_state["edit_lieu_dung"] = ""
+        if "edit_quy_cach" not in st.session_state:
+            st.session_state["edit_quy_cach"] = ""
+        if "edit_chi_dinh" not in st.session_state:
+            st.session_state["edit_chi_dinh"] = ""
+        if "edit_chong_chi_dinh" not in st.session_state:
+            st.session_state["edit_chong_chi_dinh"] = ""
+        if "edit_biet_duoc_list" not in st.session_state:
+            st.session_state["edit_biet_duoc_list"] = [{"id": 0, "ten": "", "link": ""}]
 
-                # Đổ dữ liệu biệt dược cũ
-                bd_old = thuoc_bietduoc_dict.get(selected, [])
+        def sync_hoat_chat_data(selected_name):
+            selected_name = selected_name.strip()
+            if selected_name in thuoc_dict:
+                # Nếu hoạt chất đã tồn tại -> Đổ dữ liệu cũ ra Form
+                st.session_state["edit_hoat_chat_name"] = selected_name
+                st.session_state["edit_lieu_dung"] = thuoc_dict.get(selected_name, "")
+                st.session_state["edit_quy_cach"] = thuoc_quycach_dict.get(selected_name, "")
+                st.session_state["edit_chi_dinh"] = thuoc_chidinh_dict.get(selected_name, "")
+                st.session_state["edit_chong_chi_dinh"] = thuoc_chongchidinh_dict.get(selected_name, "")
+
+                bd_old = thuoc_bietduoc_dict.get(selected_name, [])
                 new_list = []
                 for i, bd in enumerate(bd_old):
                     new_list.append({
@@ -544,30 +519,34 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                     new_list = [{"id": 0, "ten": "", "link": ""}]
                 st.session_state["edit_biet_duoc_list"] = new_list
             else:
-                st.session_state["edit_hoat_chat_name"] = ""
+                # Nếu là tên thuốc mới -> Đặt lại trạng thái trống
+                st.session_state["edit_hoat_chat_name"] = selected_name
                 st.session_state["edit_lieu_dung"] = ""
                 st.session_state["edit_quy_cach"] = ""
                 st.session_state["edit_chi_dinh"] = ""
                 st.session_state["edit_chong_chi_dinh"] = ""
                 st.session_state["edit_biet_duoc_list"] = [{"id": 0, "ten": "", "link": ""}]
 
-        # Khởi tạo giá trị ban đầu trong Session State
-        if "edit_biet_duoc_list" not in st.session_state:
-            st.session_state["edit_biet_duoc_list"] = [{"id": 0, "ten": "", "link": ""}]
-
-        combo_options = ["-- Nhập tên hoạt chất mới --"] + danh_sach_thuoc
-        st.selectbox(
-            "1. Chọn Hoạt chất đã có từ dữ liệu (hoặc chọn nhập mới):",
-            options=combo_options,
-            key="selected_hoat_chat_combo",
-            on_change=on_hoat_chat_change,
+        # Hộp chọn/gõ tên Hoạt chất tích hợp 2 trong 1
+        hoat_chat_selected = st.selectbox(
+            "1. Tên Hoạt chất chính thức (Cột A):",
+            options=[""] + danh_sach_thuoc,
+            index=0,
+            help="Chọn thuốc từ danh sách để cập nhật HOẶC gõ trực tiếp tên thuốc mới nếu chưa có.",
+            accept_custom_value=True,  # Hỗ trợ gõ trực tiếp giá trị mới
         )
 
-        hoat_chat_name = st.text_input(
-            "Tên Hoạt chất chính thức (Cột A):",
-            key="edit_hoat_chat_name",
-            placeholder="Ví dụ: Paracetamol",
-        )
+        # Kiểm tra sự thay đổi của tên hoạt chất
+        if hoat_chat_selected != st.session_state.get("last_selected_hc", None):
+            st.session_state["last_selected_hc"] = hoat_chat_selected
+            sync_hoat_chat_data(hoat_chat_selected)
+
+        # Hiển thị phản hồi trực quan
+        current_name = st.session_state.get("edit_hoat_chat_name", "").strip()
+        if current_name in thuoc_dict:
+            st.info(f"🔄 Đã tự động tải dữ liệu cũ của hoạt chất: **{current_name}**")
+        elif current_name:
+            st.success(f"✨ Tạo mới dữ liệu cho hoạt chất: **{current_name}**")
 
         lieu_dung_input = st.text_input(
             "2. Quy định liều dùng (Cột B - cách nhau bởi dấu ';'):",
@@ -600,7 +579,7 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
             if not st.session_state["edit_biet_duoc_list"]:
                 st.session_state["edit_biet_duoc_list"] = [{"id": 0, "ten": "", "link": ""}]
 
-        # Hiển thị các hàng nhập biệt dược
+        # Tự động tạo và hiển thị danh sách dòng biệt dược
         for idx, item in enumerate(st.session_state["edit_biet_duoc_list"]):
             row_id = item["id"]
             col_bd1, col_bd2, col_bd3 = st.columns([2, 3, 1])
@@ -619,7 +598,7 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                     key=f"file_bd_val_{row_id}",
                 )
                 if item.get("link"):
-                    st.markdown(f"📄 [Link PDF đã lưu hiện tại]({item['link']})")
+                    st.markdown(f"📄 [Link PDF hiện tại]({item['link']})")
 
             with col_bd3:
                 st.markdown("<br>", unsafe_allow_html=True)
@@ -632,13 +611,14 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
         st.markdown("---")
 
         if st.button("💾 ĐỒNG BỘ VÀ LƯU VÀO GOOGLE DRIVE", type="primary"):
-            if not hoat_chat_name.strip():
-                st.error("❌ Vui lòng nhập Tên hoạt chất!")
+            hoat_chat_name = st.session_state.get("edit_hoat_chat_name", "").strip()
+            if not hoat_chat_name:
+                st.error("❌ Vui lòng chọn hoặc nhập Tên hoạt chất!")
             else:
                 with st.spinner("Đang lưu dữ liệu và Upload lên Google Drive..."):
                     biet_duoc_data = []
 
-                    # Xử lý upload/lưu giữ thông tin biệt dược
+                    # Xử lý các dòng biệt dược và file PDF
                     for item in st.session_state["edit_biet_duoc_list"]:
                         row_id = item["id"]
                         t_bd = st.session_state.get(f"ten_bd_val_{row_id}", "").strip()
@@ -656,7 +636,7 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                                 "link": pdf_link
                             })
 
-                    # Ghi và Đồng bộ File Excel trực tiếp trên Google Drive
+                    # Ghi và cập nhật trực tiếp file Excel trên Google Drive
                     try:
                         service = get_drive_service()
                         if not service:
@@ -680,26 +660,25 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
 
                             ws = wb.active
 
-                            # Tìm hàng tương ứng với tên hoạt chất
+                            # Tìm dòng trùng khớp với tên hoạt chất
                             target_row = None
                             for row_idx in range(1, ws.max_row + 1):
                                 val_a = ws.cell(row=row_idx, column=1).value
-                                if val_a and str(val_a).strip().lower() == hoat_chat_name.strip().lower():
+                                if val_a and str(val_a).strip().lower() == hoat_chat_name.lower():
                                     target_row = row_idx
                                     break
 
                             if target_row is None:
                                 target_row = ws.max_row + 1 if ws.cell(row=1, column=1).value else 1
 
-                            # Cập nhật thông tin vào hàng Excel
-                            ws.cell(row=target_row, column=1, value=hoat_chat_name.strip())
-                            ws.cell(row=target_row, column=2, value=lieu_dung_input.strip())
-                            ws.cell(row=target_row, column=3, value=quy_cach_input.strip())
-                            ws.cell(row=target_row, column=4, value=chi_dinh_input.strip())
-                            ws.cell(row=target_row, column=5, value=chong_chi_dinh_input.strip())
+                            # Cập nhật thông tin các cột A -> F
+                            ws.cell(row=target_row, column=1, value=hoat_chat_name)
+                            ws.cell(row=target_row, column=2, value=st.session_state.get("edit_lieu_dung", "").strip())
+                            ws.cell(row=target_row, column=3, value=st.session_state.get("edit_quy_cach", "").strip())
+                            ws.cell(row=target_row, column=4, value=st.session_state.get("edit_chi_dinh", "").strip())
+                            ws.cell(row=target_row, column=5, value=st.session_state.get("edit_chong_chi_dinh", "").strip())
                             ws.cell(row=target_row, column=6, value=json.dumps(biet_duoc_data, ensure_ascii=False))
 
-                            # Lưu workbook vào bộ nhớ RAM
                             output_stream = io.BytesIO()
                             wb.save(output_stream)
                             output_stream.seek(0)
@@ -720,6 +699,6 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                                 service.files().create(body=file_metadata, media_body=media).execute()
 
                             st.cache_data.clear()
-                            st.success(f"🎉 Đã lưu thành công hoạt chất '{hoat_chat_name}' vào Google Drive!")
+                            st.success(f"🎉 Đã đồng bộ thành công hoạt chất '{hoat_chat_name}' vào Google Drive!")
                     except Exception as e:
-                        st.error(f"❌ Lỗi trong quá trình cập nhật Excel trên Drive: {e}")
+                        st.error(f"❌ Lỗi cập nhật file Excel: {e}")
