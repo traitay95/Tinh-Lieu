@@ -489,7 +489,6 @@ elif chon_tab == "🖊️ Tính Số Lượng Bút Insulin Theo Ngày Kê":
         else:
             st.info("Vui lòng nhập liều tiêm sáng hoặc chiều để tính toán.")
 
-
 # ==============================================================================
 # CHỨC NĂNG 3: TRANG THÊM/CẬP NHẬT HOẠT CHẤT & BIỆT DƯỢC
 # ==============================================================================
@@ -519,7 +518,18 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
         st.markdown("---")
         st.subheader("➕ Thêm mới / Cập nhật Thuốc & Biệt dược")
 
-        # Quản lý session state
+        # --- 1. ĐỊNH NGHĨA HÀM RESET WIDGETS TRƯỚC KHI SỬ DỤNG ---
+        def reset_biet_duoc_widgets():
+            """Xóa toàn bộ widget state cũ của tên biệt dược và uploader PDF."""
+            keys_to_delete = [
+                k
+                for k in st.session_state.keys()
+                if k.startswith("bd_ten_") or k.startswith("bd_pdf_")
+            ]
+            for k in keys_to_delete:
+                del st.session_state[k]
+
+        # Khởi tạo Session State mặc định
         if "edit_lieu_dung" not in st.session_state:
             st.session_state["edit_lieu_dung"] = ""
         if "edit_quy_cach" not in st.session_state:
@@ -529,7 +539,9 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
         if "edit_chong_chi_dinh" not in st.session_state:
             st.session_state["edit_chong_chi_dinh"] = ""
         if "edit_biet_duoc_list" not in st.session_state:
-            st.session_state["edit_biet_duoc_list"] = [{"id": 0, "ten": "", "link": ""}]
+            st.session_state["edit_biet_duoc_list"] = [
+                {"id": 0, "ten": "", "link": ""}
+            ]
 
         CREATE_NEW_OPTION = "[ ➕ Nhập tên Hoạt chất mới... ]"
         options_list = [CREATE_NEW_OPTION] + danh_sach_thuoc
@@ -543,6 +555,7 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
 
         final_hoat_chat_name = ""
 
+        # --- 2. XỬ LÝ CHUYỂN ĐỔI GIỮA THUỐC MỚI VÀ THUỐC CŨ ---
         if selected_option == CREATE_NEW_OPTION:
             final_hoat_chat_name = st.text_input(
                 "👉 Nhập Tên Hoạt chất chính thức mới (Cột A) *: ",
@@ -553,7 +566,7 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                 st.session_state.get("last_selected_option")
                 != CREATE_NEW_OPTION
             ):
-                reset_biet_duoc_widgets()  # <--- Xóa widget state cũ
+                reset_biet_duoc_widgets()  # Hàm đã được định nghĩa ở trên
                 st.session_state["last_selected_option"] = CREATE_NEW_OPTION
                 st.session_state["edit_lieu_dung"] = ""
                 st.session_state["edit_quy_cach"] = ""
@@ -565,7 +578,7 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
         else:
             final_hoat_chat_name = selected_option
             if st.session_state.get("last_selected_option") != selected_option:
-                reset_biet_duoc_widgets()  # <--- Xóa widget state cũ
+                reset_biet_duoc_widgets()  # Hàm đã được định nghĩa ở trên
                 st.session_state["last_selected_option"] = selected_option
                 st.session_state["edit_lieu_dung"] = thuoc_dict.get(
                     selected_option, ""
@@ -593,9 +606,13 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                 st.session_state["edit_biet_duoc_list"] = new_list
 
         if final_hoat_chat_name and selected_option != CREATE_NEW_OPTION:
-            st.info(f"🔄 Đang chỉnh sửa dữ liệu cũ của: **{final_hoat_chat_name}**")
+            st.info(
+                f"🔄 Đang chỉnh sửa dữ liệu cũ của: **{final_hoat_chat_name}**"
+            )
         elif final_hoat_chat_name:
-            st.success(f"✨ Đang tạo mới dữ liệu cho: **{final_hoat_chat_name}**")
+            st.success(
+                f"✨ Đang tạo mới dữ liệu cho: **{final_hoat_chat_name}**"
+            )
 
         lieu_dung_input = st.text_input(
             "2. Quy định liều dùng (Cột B - cách nhau bởi dấu ';') *: ",
@@ -616,19 +633,18 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
 
         st.markdown("---")
         st.write("### 💊 Danh sách Biệt dược & File đính kèm (Cột F)")
-        def reset_biet_duoc_widgets():
-            # Xóa các key bd_ten_... cũ trong session_state để Streamlit load lại từ đầu
-            keys_to_delete = [
-                k for k in st.session_state.keys() if k.startswith("bd_ten_")
-            ]
-            for k in keys_to_delete:
-                del st.session_state[k]
 
         def add_biet_duoc_row():
-            max_id = max(
-                [item["id"] for item in st.session_state["edit_biet_duoc_list"]],
-                default=-1,
-            ) + 1
+            max_id = (
+                max(
+                    [
+                        item["id"]
+                        for item in st.session_state["edit_biet_duoc_list"]
+                    ],
+                    default=-1,
+                )
+                + 1
+            )
             st.session_state["edit_biet_duoc_list"].append(
                 {"id": max_id, "ten": "", "link": ""}
             )
@@ -644,32 +660,42 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
             if not target_item:
                 return
 
-            with st.spinner("Đang xóa biệt dược và cập nhật lại file Excel trên Drive..."):
-                # 1. Xóa file PDF trên Google Drive nếu có link
+            with st.spinner(
+                "Đang xóa biệt dược và cập nhật lại file Excel trên Drive..."
+            ):
                 if target_item.get("link"):
                     delete_file_from_drive(target_item["link"])
 
-                # 2. Loại bỏ khỏi danh sách session_state
                 st.session_state["edit_biet_duoc_list"] = [
                     item
                     for item in st.session_state["edit_biet_duoc_list"]
                     if item["id"] != row_id
                 ]
                 if not st.session_state["edit_biet_duoc_list"]:
-                    st.session_state["edit_biet_duoc_list"] = [{"id": 0, "ten": "", "link": ""}]
+                    st.session_state["edit_biet_duoc_list"] = [
+                        {"id": 0, "ten": "", "link": ""}
+                    ]
 
-                # 3. Chuẩn bị dữ liệu json biệt dược còn lại
+                # Xóa key tương ứng trong session_state
+                if f"bd_ten_{row_id}" in st.session_state:
+                    del st.session_state[f"bd_ten_{row_id}"]
+                if f"bd_pdf_{row_id}" in st.session_state:
+                    del st.session_state[f"bd_pdf_{row_id}"]
+
                 updated_bd_data = []
                 for item in st.session_state["edit_biet_duoc_list"]:
                     t_name = item.get("ten", "").strip()
                     if t_name:
-                        updated_bd_data.append({"ten": t_name, "link": item.get("link", "")})
+                        updated_bd_data.append(
+                            {"ten": t_name, "link": item.get("link", "")}
+                        )
 
-                # 4. Nếu đang chỉnh sửa thuốc cũ (đã có trong Excel), cập nhật trực tiếp Excel
                 hoat_chat_name = final_hoat_chat_name.strip()
                 if hoat_chat_name and selected_option != CREATE_NEW_OPTION:
                     service = get_drive_service()
-                    file_id = search_file_in_folder(service, EXCEL_FILE_NAME, FOLDER_ID)
+                    file_id = search_file_in_folder(
+                        service, EXCEL_FILE_NAME, FOLDER_ID
+                    )
                     if file_id:
                         request = service.files().get_media(fileId=file_id)
                         file_stream = io.BytesIO()
@@ -681,11 +707,19 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                         wb = load_workbook(file_stream)
                         ws = wb.active
 
-                        # Tìm dòng và ghi đè lại Cột F
                         for r in range(1, ws.max_row + 1):
                             cell_val = ws.cell(row=r, column=1).value
-                            if cell_val and str(cell_val).strip() == hoat_chat_name:
-                                ws.cell(row=r, column=6, value=json.dumps(updated_bd_data, ensure_ascii=False))
+                            if (
+                                cell_val
+                                and str(cell_val).strip() == hoat_chat_name
+                            ):
+                                ws.cell(
+                                    row=r,
+                                    column=6,
+                                    value=json.dumps(
+                                        updated_bd_data, ensure_ascii=False
+                                    ),
+                                )
                                 break
 
                         save_excel_to_drive(service, wb)
@@ -694,19 +728,17 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
             st.toast("🗑️ Đã xóa biệt dược và đồng bộ Excel trên Drive!")
             st.rerun()
 
-        # Hiển thị danh sách nhập các biệt dược
+        # --- 3. HIỂN THỊ DANH SÁCH BIỆT DƯỢC VÀ ĐỔ DỮ LIỆU ---
         updated_biet_duoc_list = []
         for idx, item in enumerate(st.session_state["edit_biet_duoc_list"]):
             row_id = item["id"]
             c1, c2, c3 = st.columns([3, 3, 1])
 
-            # Nếu key chưa có trong session_state thì khởi tạo bằng giá trị tên từ Excel
             widget_key = f"bd_ten_{row_id}"
             if widget_key not in st.session_state:
                 st.session_state[widget_key] = item.get("ten", "")
 
             with c1:
-                # Không truyền `value=`, Streamlit sẽ tự bắt theo `key`
                 bd_ten = st.text_input(
                     f"Tên biệt dược #{idx+1}",
                     key=widget_key,
@@ -744,7 +776,7 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
 
         st.markdown("---")
 
-        # NÚT LƯU CẬP NHẬT
+        # --- 4. NÚT LƯU DỮ LIỆU LÊN DRIVE ---
         if st.button("💾 Lưu Toàn Bộ Dữ Liệu Lên Google Drive", type="primary"):
             hoat_chat_final = final_hoat_chat_name.strip()
 
@@ -753,21 +785,22 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
             elif not lieu_dung_input.strip():
                 st.error("❌ Vui lòng nhập Quy định liều dùng (Cột B)!")
             else:
-                with st.spinner("Đang xử lý tải file PDF và cập nhật file Excel lên Drive..."):
+                with st.spinner(
+                    "Đang xử lý tải file PDF và cập nhật file Excel lên Drive..."
+                ):
                     service = get_drive_service()
                     if not service:
                         st.error("❌ Lỗi kết nối Drive.")
                     else:
-                        # Lấy danh sách biệt dược cũ (nếu có) để phục vụ kiểm tra trùng tên
-                        old_bd_list = thuoc_bietduoc_dict.get(hoat_chat_final, [])
-                        # Map tên biệt dược cũ dạng chữ thường -> link file PDF cũ
+                        old_bd_list = thuoc_bietduoc_dict.get(
+                            hoat_chat_final, []
+                        )
                         old_bd_map = {
                             b.get("ten", "").strip().lower(): b.get("link", "")
                             for b in old_bd_list
                             if b.get("ten")
                         }
 
-                        # 1. Xử lý tải PDF mới cho từng biệt dược & tự động xóa PDF cũ nếu TRÙNG TÊN
                         final_bd_json_data = []
 
                         for bd_item in updated_biet_duoc_list:
@@ -779,15 +812,14 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                             pdf_uploaded = bd_item["pdf_file"]
                             link_to_use = bd_item["link"]
 
-                            # NẾU CÓ UPLOAD FILE PDF MỚI
                             if pdf_uploaded is not None:
-                                # Kiểm tra xem tên biệt dược có bị TRÙNG với danh sách cũ hay không
-                                if ten_bd_lower in old_bd_map and old_bd_map[ten_bd_lower]:
+                                if (
+                                    ten_bd_lower in old_bd_map
+                                    and old_bd_map[ten_bd_lower]
+                                ):
                                     old_pdf_link = old_bd_map[ten_bd_lower]
-                                    # XÓA FILE PDF CŨ TRÊN GOOGLE DRIVE
                                     delete_file_from_drive(old_pdf_link)
 
-                                # Upload file PDF mới lên Drive
                                 _, new_link = upload_pdf_to_drive(pdf_uploaded)
                                 if new_link:
                                     link_to_use = new_link
@@ -797,12 +829,15 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                                 "link": link_to_use,
                             })
 
-                        # 2. Đọc và Cập nhật File Excel trên Drive
-                        file_id = search_file_in_folder(service, EXCEL_FILE_NAME, FOLDER_ID)
+                        file_id = search_file_in_folder(
+                            service, EXCEL_FILE_NAME, FOLDER_ID
+                        )
                         if file_id:
                             request = service.files().get_media(fileId=file_id)
                             file_stream = io.BytesIO()
-                            downloader = MediaIoBaseDownload(file_stream, request)
+                            downloader = MediaIoBaseDownload(
+                                file_stream, request
+                            )
                             done = False
                             while not done:
                                 _, done = downloader.next_chunk()
@@ -813,29 +848,56 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
 
                         ws = wb.active
 
-                        # Kiểm tra xem Hoạt chất đã tồn tại trong Excel chưa
                         row_found = None
                         for r in range(1, ws.max_row + 1):
                             cell_val = ws.cell(row=r, column=1).value
-                            if cell_val and str(cell_val).strip().lower() == hoat_chat_final.lower():
+                            if (
+                                cell_val
+                                and str(cell_val).strip().lower()
+                                == hoat_chat_final.lower()
+                            ):
                                 row_found = r
                                 break
 
                         if row_found is None:
-                            row_found = ws.max_row + 1 if ws.cell(row=1, column=1).value else 1
+                            row_found = (
+                                ws.max_row + 1
+                                if ws.cell(row=1, column=1).value
+                                else 1
+                            )
 
-                        # Ghi dữ liệu vào các cột A, B, C, D, E, F
                         ws.cell(row=row_found, column=1, value=hoat_chat_final)
-                        ws.cell(row=row_found, column=2, value=lieu_dung_input.strip())
-                        ws.cell(row=row_found, column=3, value=quy_cach_input.strip())
-                        ws.cell(row=row_found, column=4, value=chi_dinh_input.strip())
-                        ws.cell(row=row_found, column=5, value=chong_chi_dinh_input.strip())
-                        ws.cell(row=row_found, column=6, value=json.dumps(final_bd_json_data, ensure_ascii=False))
+                        ws.cell(
+                            row=row_found,
+                            column=2,
+                            value=lieu_dung_input.strip(),
+                        )
+                        ws.cell(
+                            row=row_found, column=3, value=quy_cach_input.strip()
+                        )
+                        ws.cell(
+                            row=row_found, column=4, value=chi_dinh_input.strip()
+                        )
+                        ws.cell(
+                            row=row_found,
+                            column=5,
+                            value=chong_chi_dinh_input.strip(),
+                        )
+                        ws.cell(
+                            row=row_found,
+                            column=6,
+                            value=json.dumps(
+                                final_bd_json_data, ensure_ascii=False
+                            ),
+                        )
 
-                        # Lưu Workbook đè lên Drive
                         save_excel_to_drive(service, wb)
 
-                        # Xóa cache để làm mới ứng dụng
+                        st.cache_data.clear()
+                        st.success(
+                            f"🎉 Đã lưu và cập nhật thành công thuốc **{hoat_chat_final}** lên Google Drive!"
+                        )
+                        st.rerun()
                         st.cache_data.clear()
                         st.success(f"🎉 Đã lưu và cập nhật thành công thuốc **{hoat_chat_final}** lên Google Drive!")
                         st.rerun()
