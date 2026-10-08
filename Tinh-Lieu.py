@@ -28,38 +28,51 @@ CLIENT_CONFIG = {
         "redirect_uris": ["http://localhost"]
     }
 }
-TOKEN_PATH = 'token.json'
-
+@st.cache_resource
 def get_drive_service():
-    creds = None
-    
-    # Đọc token đăng nhập cũ nếu có
-    if os.path.exists(TOKEN_PATH):
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
-    
-    # Nếu chưa đăng nhập hoặc token hết hạn
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            # Khởi tạo Auth Flow trực tiếp từ dict CLIENT_CONFIG mà không cần file credentials.json
-            flow = InstalledAppFlow.from_client_config(CLIENT_CONFIG, SCOPES)
-            creds = flow.run_local_server(port=0)
-            
-        # Lưu phiên đăng nhập vào token.json để lần sau không phải bấm đăng nhập lại
-        with open(TOKEN_PATH, 'w') as token:
-            token.write(creds.to_json())
+    # Tự động lấy thông tin từ Streamlit Secrets
+    client_id = st.secrets["client_id"]
+    client_secret = st.secrets["client_secret"]
+    refresh_token = st.secrets["refresh_token"]
 
+    # Khởi tạo credentials từ Refresh Token
+    creds = Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=SCOPES
+    )
+
+    # Làm mới Token để có Access Token hợp lệ
+    creds.refresh(Request())
+    
     return build('drive', 'v3', credentials=creds)
 
-# Chạy thử kết nối
-if __name__ == '__main__':
-    try:
-        service = get_drive_service()
-        print("✅ Kết nối Google Drive thành công mà không cần file credentials.json!")
-    except Exception as e:
-        print(f"❌ Lỗi kết nối: {e}")
+# --- Streamlit UI ---
+st.title("Google Drive Streamlit App")
 
+try:
+    service = get_drive_service()
+    st.success("✅ Kết nối Google Drive thành công!")
+
+    # Chạy thử: Lấy danh sách 10 file đầu tiên trên Drive
+    results = service.files().list(
+        pageSize=10, 
+        fields="nextPageToken, files(id, name)"
+    ).execute()
+    items = results.get('files', [])
+
+    st.subheader("Danh sách file gần đây:")
+    if not items:
+        st.write("Không tìm thấy file nào.")
+    else:
+        for item in items:
+            st.write(f"📄 **{item['name']}** (`{item['id']}`)")
+
+except Exception as e:
+    st.error(f"❌ Lỗi kết nối Google Drive: {e}")
 def search_file_in_folder(service, filename, folder_id):
     """Tìm file theo tên trong FOLDER_ID cụ thể."""
     query = f"'{folder_id}' in parents and name = '{filename}' and trashed = false"
