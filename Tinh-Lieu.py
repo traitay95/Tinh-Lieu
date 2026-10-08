@@ -7,7 +7,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 import openpyxl
 from openpyxl import load_workbook
 import streamlit as st
@@ -15,6 +15,7 @@ import streamlit as st
 # --- CẤU HÌNH GOOGLE DRIVE ---
 FOLDER_ID = "1GbnN63XfIc1UmR_2XW8LPePpFxvBB__e"
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+EXCEL_FILE_NAME = "danh_sach_thuoc_lieu_dung.xlsx"
 
 
 def get_drive_service():
@@ -35,6 +36,20 @@ def get_drive_service():
             else:
                 return None
     return build("drive", "v3", credentials=creds)
+
+
+def search_file_in_folder(service, filename, folder_id):
+    """Tìm file theo tên trong FOLDER_ID cụ thể."""
+    query = f"'{folder_id}' in parents and name = '{filename}' and trashed = false"
+    results = (
+        service.files()
+        .list(q=query, spaces="drive", fields="files(id, name)")
+        .execute()
+    )
+    items = results.get("files", [])
+    if items:
+        return items[0]["id"]
+    return None
 
 
 def upload_pdf_to_drive(uploaded_file):
@@ -64,7 +79,7 @@ def upload_pdf_to_drive(uploaded_file):
         )
         return file.get("id"), file.get("webViewLink")
     except Exception as e:
-        st.error(f"Lỗi Upload Drive: {e}")
+        st.error(f"Lỗi Upload PDF lên Drive: {e}")
         return None, None
 
 
@@ -79,11 +94,33 @@ st.title("🩺 Công Cụ Tính Liều Thuốc & Bút Tiêm Insulin")
 st.markdown("---")
 
 
-# --- HÀM ĐỌC DỮ LIỆU EXCEL ---
+# --- HÀM ĐỌC DỮ LIỆU EXCEL TỪ GOOGLE DRIVE HOẶC FILE UPLOAD ---
 @st.cache_data(show_spinner=False)
-def load_excel_data(file_source):
+def load_excel_data_from_drive_or_file(uploaded_file_bytes=None):
     try:
-        wb = load_workbook(file_source)
+        file_stream = None
+
+        if uploaded_file_bytes is not None:
+            file_stream = io.BytesIO(uploaded_file_bytes)
+        else:
+            service = get_drive_service()
+            if service:
+                file_id = search_file_in_folder(
+                    service, EXCEL_FILE_NAME, FOLDER_ID
+                )
+                if file_id:
+                    request = service.files().get_media(fileId=file_id)
+                    file_stream = io.BytesIO()
+                    downloader = MediaIoBaseDownload(file_stream, request)
+                    done = False
+                    while not done:
+                        _, done = downloader.next_chunk()
+                    file_stream.seek(0)
+
+        if file_stream is None:
+            return {}, {}, {}, {}, {}
+
+        wb = load_workbook(file_stream)
         ws = wb.active
 
         thuoc_dict = {}
@@ -136,7 +173,7 @@ def load_excel_data(file_source):
             thuoc_bietduoc_dict,
         )
     except Exception as e:
-        st.error(f"❌ Lỗi đọc file Excel: {e}")
+        st.error(f"❌ Lỗi đọc dữ liệu Excel: {e}")
         return {}, {}, {}, {}, {}
 
 
@@ -146,29 +183,20 @@ uploaded_file = st.sidebar.file_uploader(
     "Tải lên file Excel danh sách thuốc (.xlsx)", type=["xlsx"]
 )
 
-excel_filepath = "danh_sach_thuoc_lieu_dung.xlsx"
-
 if uploaded_file is None:
-    if os.path.exists(excel_filepath):
-        (
-            thuoc_dict,
-            thuoc_quycach_dict,
-            thuoc_chidinh_dict,
-            thuoc_chongchidinh_dict,
-            thuoc_bietduoc_dict,
-        ) = load_excel_data(excel_filepath)
-        st.sidebar.success("✅ Đang sử dụng file Excel lưu tại máy.")
+    (
+        thuoc_dict,
+        thuoc_quycach_dict,
+        thuoc_chidinh_dict,
+        thuoc_chongchidinh_dict,
+        thuoc_bietduoc_dict,
+    ) = load_excel_data_from_drive_or_file()
+    if thuoc_dict:
+        st.sidebar.success("✅ Đang sử dụng dữ liệu Excel từ Google Drive.")
     else:
         st.sidebar.warning(
-            "⚠️ Chưa có dữ liệu local. Vui lòng tải file Excel lên!"
+            "⚠️ Chưa tìm thấy file Excel trên Drive hoặc chưa kết nối."
         )
-        (
-            thuoc_dict,
-            thuoc_quycach_dict,
-            thuoc_chidinh_dict,
-            thuoc_chongchidinh_dict,
-            thuoc_bietduoc_dict,
-        ) = ({}, {}, {}, {}, {})
 else:
     (
         thuoc_dict,
@@ -176,7 +204,7 @@ else:
         thuoc_chidinh_dict,
         thuoc_chongchidinh_dict,
         thuoc_bietduoc_dict,
-    ) = load_excel_data(uploaded_file)
+    ) = load_excel_data_from_drive_or_file(uploaded_file.getvalue())
     st.sidebar.success("🎉 Đã cập nhật dữ liệu từ file đính kèm!")
 
 danh_sach_thuoc = sorted(thuoc_dict.keys())
@@ -497,11 +525,11 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
 
     st.markdown("---")
 
-    if st.button("💾 ĐỒNG BỘ VÀ LƯU VÀO EXCEL", type="primary"):
+    if st.button("💾 ĐỒNG BỘ VÀ LƯU VÀO GOOGLE DRIVE", type="primary"):
         if not hoat_chat.strip():
             st.error("❌ Vui lòng nhập Tên hoạt chất!")
         else:
-            with st.spinner("Đang lưu dữ liệu và Upload PDF lên Google Drive..."):
+            with st.spinner("Đang lưu dữ liệu và Upload lên Google Drive..."):
                 biet_duoc_data = []
 
                 # Xử lý upload các file PDF biệt dược
@@ -518,66 +546,120 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                             {"ten": t_bd.strip(), "link": pdf_link or ""}
                         )
 
-                # Cập nhật hoặc lưu vào file Excel
+                # Ghi và Đồng bộ File Excel trực tiếp trên Google Drive
                 try:
-                    if os.path.exists(excel_filepath):
-                        wb = openpyxl.load_workbook(excel_filepath)
+                    service = get_drive_service()
+                    if not service:
+                        st.error(
+                            "❌ Không kết nối được với Drive service. Vui lòng kiểm tra credentials.json/token.json"
+                        )
                     else:
-                        wb = openpyxl.Workbook()
-
-                    ws = wb.active
-
-                    # Tìm xem Hoạt chất đã tồn tại chưa
-                    target_row = None
-                    for row_idx in range(1, ws.max_row + 1):
-                        val_a = ws.cell(row=row_idx, column=1).value
-                        if (
-                            val_a
-                            and str(val_a).strip().lower()
-                            == hoat_chat.strip().lower()
-                        ):
-                            target_row = row_idx
-                            break
-
-                    if target_row is None:
-                        target_row = (
-                            ws.max_row + 1
-                            if ws.cell(row=1, column=1).value
-                            else 1
+                        file_id = search_file_in_folder(
+                            service, EXCEL_FILE_NAME, FOLDER_ID
                         )
 
-                    # Ghi thông tin vào hàng Excel
-                    ws.cell(
-                        row=target_row, column=1, value=hoat_chat.strip()
-                    )  # Cột A
-                    ws.cell(
-                        row=target_row, column=2, value=lieu_dung_input.strip()
-                    )  # Cột B
-                    ws.cell(
-                        row=target_row, column=3, value=quy_cach_input.strip()
-                    )  # Cột C
-                    ws.cell(
-                        row=target_row, column=4, value=chi_dinh_input.strip()
-                    )  # Cột D
-                    ws.cell(
-                        row=target_row,
-                        column=5,
-                        value=chong_chi_dinh_input.strip(),
-                    )  # Cột E
-                    ws.cell(
-                        row=target_row,
-                        column=6,
-                        value=json.dumps(biet_duoc_data, ensure_ascii=False),
-                    )  # Cột F
+                        if file_id:
+                            # Đã có file trên Drive -> Tải nội dung về Memory
+                            request = service.files().get_media(fileId=file_id)
+                            file_stream = io.BytesIO()
+                            downloader = MediaIoBaseDownload(
+                                file_stream, request
+                            )
+                            done = False
+                            while not done:
+                                _, done = downloader.next_chunk()
+                            file_stream.seek(0)
+                            wb = openpyxl.load_workbook(file_stream)
+                        else:
+                            # Chưa có file -> Tạo workbook mới
+                            wb = openpyxl.Workbook()
 
-                    wb.save(excel_filepath)
-                    st.cache_data.clear()  # Xóa cache dữ liệu để làm mới toàn hệ thống
-                    st.success(
-                        f"🎉 Đã lưu thành công dữ liệu thuốc **{hoat_chat}** vào file Excel!"
-                    )
+                        ws = wb.active
 
-                    # Reset danh sách biệt dược về mặc định
-                    st.session_state["biet_duoc_list"] = [{"id": 0}]
+                        # Tìm xem Hoạt chất đã tồn tại chưa
+                        target_row = None
+                        for row_idx in range(1, ws.max_row + 1):
+                            val_a = ws.cell(row=row_idx, column=1).value
+                            if (
+                                val_a
+                                and str(val_a).strip().lower()
+                                == hoat_chat.strip().lower()
+                            ):
+                                target_row = row_idx
+                                break
+
+                        if target_row is None:
+                            target_row = (
+                                ws.max_row + 1
+                                if ws.cell(row=1, column=1).value
+                                else 1
+                            )
+
+                        # Ghi thông tin vào hàng Excel
+                        ws.cell(
+                            row=target_row, column=1, value=hoat_chat.strip()
+                        )  # Cột A
+                        ws.cell(
+                            row=target_row,
+                            column=2,
+                            value=lieu_dung_input.strip(),
+                        )  # Cột B
+                        ws.cell(
+                            row=target_row,
+                            column=3,
+                            value=quy_cach_input.strip(),
+                        )  # Cột C
+                        ws.cell(
+                            row=target_row,
+                            column=4,
+                            value=chi_dinh_input.strip(),
+                        )  # Cột D
+                        ws.cell(
+                            row=target_row,
+                            column=5,
+                            value=chong_chi_dinh_input.strip(),
+                        )  # Cột E
+                        ws.cell(
+                            row=target_row,
+                            column=6,
+                            value=json.dumps(
+                                biet_duoc_data, ensure_ascii=False
+                            ),
+                        )  # Cột F
+
+                        # Lưu Workbook ra BytesIO Stream
+                        output_stream = io.BytesIO()
+                        wb.save(output_stream)
+                        output_stream.seek(0)
+
+                        media = MediaIoBaseUpload(
+                            output_stream,
+                            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            resumable=True,
+                        )
+
+                        if file_id:
+                            # Update đè file đã tồn tại trên Drive
+                            service.files().update(
+                                fileId=file_id, media_body=media
+                            ).execute()
+                        else:
+                            # Tạo file mới trong FOLDER_ID trên Drive
+                            file_metadata = {
+                                "name": EXCEL_FILE_NAME,
+                                "parents": [FOLDER_ID],
+                            }
+                            service.files().create(
+                                body=file_metadata, media_body=media
+                            ).execute()
+
+                        st.cache_data.clear()  # Xóa cache Streamlit để tự động load dữ liệu mới nhất
+                        st.success(
+                            f"🎉 Đã đồng bộ thành công dữ liệu thuốc **{hoat_chat}** lên file Excel trên Google Drive!"
+                        )
+
+                        # Reset danh sách biệt dược về mặc định
+                        st.session_state["biet_duoc_list"] = [{"id": 0}]
 
                 except Exception as e:
-                    st.error(f"❌ Lỗi ghi file Excel: {e}")
+                    st.error(f"❌ Lỗi đồng bộ lên Google Drive: {e}")
