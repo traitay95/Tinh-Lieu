@@ -18,14 +18,20 @@ SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 EXCEL_FILE_NAME = "danh_sach_thuoc_lieu_dung.xlsx"
 # 1. Nhúng trực tiếp cấu hình OAuth Credentials vào code
 CLIENT_CONFIG = {
-    "installed": {
-        "client_id": "976291028498-mkqsg7fs123gt1hjs8kh23epmqklq31s.apps.googleusercontent.com",
-        "project_id": "data-508701",
+    "web": {
+        "client_id": "122437508128-pfb414pti5bk56julsf4btbtmo4blubs.apps.googleusercontent.com",
+        "project_id": "lichtuan-2b316",
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
         "token_uri": "https://oauth2.googleapis.com/token",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_secret": "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",
-        "redirect_uris": ["http://localhost"]
+        "client_secret": "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",
+        "redirect_uris": [
+            "http://localhost",
+            "http://localhost/",
+            "http://localhost:8080/",
+            "http://127.0.0.1",
+            "https://tinhlieu.streamlit.app/"
+        ]
     }
 }
 @st.cache_resource
