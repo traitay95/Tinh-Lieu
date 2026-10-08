@@ -210,7 +210,7 @@ danh_sach_thuoc = sorted(thuoc_dict.keys())
 
 # --- MENU CHỨC NĂNG ---
 if "menu_selection" not in st.session_state:
-    st.session_state["menu_selection"] = "⚖️ Tính Liều Theo Cân NẶng"
+    st.session_state["menu_selection"] = "⚖️ Tính Liều Theo Cân Nặng"
 
 chon_tab = st.radio(
     "📌 Chọn chức năng:",
@@ -584,6 +584,9 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                     {"id": 0, "ten": "", "link": ""}
                 ]
 
+        # Tiền tố key riêng cho từng lựa chọn để bắt buộc Streamlit render lại đúng giá trị của thuốc đó
+        key_prefix = f"{selected_option}_"
+
         # Hiển thị danh sách các biệt dược
         for idx, item in enumerate(st.session_state["edit_biet_duoc_list"]):
             row_id = item["id"]
@@ -593,21 +596,21 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                 item["ten"] = st.text_input(
                     f"Tên biệt dược #{idx+1}:",
                     value=item.get("ten", ""),
-                    key=f"ten_bd_val_{row_id}",
+                    key=f"{key_prefix}ten_bd_val_{row_id}",
                 )
 
             with col_bd2:
                 uploaded_pdf = st.file_uploader(
                     f"Tải file PDF mới #{idx+1}:",
                     type=["pdf"],
-                    key=f"file_bd_val_{row_id}",
+                    key=f"{key_prefix}file_bd_val_{row_id}",
                 )
                 if item.get("link"):
                     st.markdown(f"📄 [Link PDF hiện tại]({item['link']})")
 
             with col_bd3:
                 st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("🗑️ Xóa", key=f"del_bd_{row_id}"):
+                if st.button("🗑️ Xóa", key=f"{key_prefix}del_bd_{row_id}"):
                     remove_biet_duoc_row(row_id)
                     st.rerun()
 
@@ -626,135 +629,75 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                     for item in st.session_state["edit_biet_duoc_list"]:
                         row_id = item["id"]
                         t_bd = st.session_state.get(
-                            f"ten_bd_val_{row_id}", ""
+                            f"{key_prefix}ten_bd_val_{row_id}", ""
                         ).strip()
                         f_bd = st.session_state.get(
-                            f"file_bd_val_{row_id}", None
+                            f"{key_prefix}file_bd_val_{row_id}", None
                         )
 
                         if t_bd:
                             pdf_link = item.get("link", "")
                             if f_bd is not None:
-                                _, new_pdf_link = upload_pdf_to_drive(f_bd)
-                                if new_pdf_link:
-                                    pdf_link = new_pdf_link
+                                _, pdf_link = upload_pdf_to_drive(f_bd)
+                            biet_duoc_data.append({"ten": t_bd, "link": pdf_link or ""})
 
-                            biet_duoc_data.append(
-                                {"ten": t_bd, "link": pdf_link}
-                            )
+                    # Đọc workbook hiện tại từ Drive
+                    service = get_drive_service()
+                    file_id = search_file_in_folder(service, EXCEL_FILE_NAME, FOLDER_ID)
+                    
+                    if file_id:
+                        request = service.files().get_media(fileId=file_id)
+                        file_stream = io.BytesIO()
+                        downloader = MediaIoBaseDownload(file_stream, request)
+                        done = False
+                        while not done:
+                            _, done = downloader.next_chunk()
+                        file_stream.seek(0)
+                        wb = load_workbook(file_stream)
+                    else:
+                        wb = openpyxl.Workbook()
 
-                    try:
-                        service = get_drive_service()
-                        if not service:
-                            st.error(
-                                "❌ Không kết nối được với Google Drive Service."
-                            )
-                        else:
-                            file_id = search_file_in_folder(
-                                service, EXCEL_FILE_NAME, FOLDER_ID
-                            )
+                    ws = wb.active
 
-                            if file_id:
-                                request = service.files().get_media(
-                                    fileId=file_id
-                                )
-                                file_stream = io.BytesIO()
-                                downloader = MediaIoBaseDownload(
-                                    file_stream, request
-                                )
-                                done = False
-                                while not done:
-                                    _, done = downloader.next_chunk()
-                                file_stream.seek(0)
-                                wb = openpyxl.load_workbook(file_stream)
-                            else:
-                                wb = openpyxl.Workbook()
+                    # Cập nhật hoặc thêm mới dòng trong Excel
+                    row_found = False
+                    for r in range(1, ws.max_row + 1):
+                        cell_val = ws.cell(row=r, column=1).value
+                        if cell_val and str(cell_val).strip() == hoat_chat_name:
+                            ws.cell(row=r, column=2, value=lieu_dung_input)
+                            ws.cell(row=r, column=3, value=quy_cach_input)
+                            ws.cell(row=r, column=4, value=chi_dinh_input)
+                            ws.cell(row=r, column=5, value=chong_chi_dinh_input)
+                            ws.cell(row=r, column=6, value=json.dumps(biet_duoc_data, ensure_ascii=False))
+                            row_found = True
+                            break
 
-                            ws = wb.active
+                    if not row_found:
+                        new_row = ws.max_row + 1
+                        ws.cell(row=new_row, column=1, value=hoat_chat_name)
+                        ws.cell(row=new_row, column=2, value=lieu_dung_input)
+                        ws.cell(row=new_row, column=3, value=quy_cach_input)
+                        ws.cell(row=new_row, column=4, value=chi_dinh_input)
+                        ws.cell(row=new_row, column=5, value=chong_chi_dinh_input)
+                        ws.cell(row=new_row, column=6, value=json.dumps(biet_duoc_data, ensure_ascii=False))
 
-                            target_row = None
-                            for row_idx in range(1, ws.max_row + 1):
-                                val_a = ws.cell(row=row_idx, column=1).value
-                                if (
-                                    val_a
-                                    and str(val_a).strip().lower()
-                                    == hoat_chat_name.lower()
-                                ):
-                                    target_row = row_idx
-                                    break
+                    # Upload Excel mới đè lên Drive
+                    out_stream = io.BytesIO()
+                    wb.save(out_stream)
+                    out_stream.seek(0)
 
-                            if target_row is None:
-                                target_row = (
-                                    ws.max_row + 1
-                                    if ws.cell(row=1, column=1).value
-                                    else 1
-                                )
+                    media = MediaIoBaseUpload(
+                        out_stream,
+                        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        resumable=True
+                    )
 
-                            ws.cell(
-                                row=target_row, column=1, value=hoat_chat_name
-                            )
-                            ws.cell(
-                                row=target_row,
-                                column=2,
-                                value=st.session_state.get(
-                                    "edit_lieu_dung", ""
-                                ).strip(),
-                            )
-                            ws.cell(
-                                row=target_row,
-                                column=3,
-                                value=st.session_state.get(
-                                    "edit_quy_cach", ""
-                                ).strip(),
-                            )
-                            ws.cell(
-                                row=target_row,
-                                column=4,
-                                value=st.session_state.get(
-                                    "edit_chi_dinh", ""
-                                ).strip(),
-                            )
-                            ws.cell(
-                                row=target_row,
-                                column=5,
-                                value=st.session_state.get(
-                                    "edit_chong_chi_dinh", ""
-                                ).strip(),
-                            )
-                            ws.cell(
-                                row=target_row,
-                                column=6,
-                                value=json.dumps(
-                                    biet_duoc_data, ensure_ascii=False
-                                ),
-                            )
+                    if file_id:
+                        service.files().update(fileId=file_id, media_body=media).execute()
+                    else:
+                        file_metadata = {"name": EXCEL_FILE_NAME, "parents": [FOLDER_ID]}
+                        service.files().create(body=file_metadata, media_body=media).execute()
 
-                            output_stream = io.BytesIO()
-                            wb.save(output_stream)
-                            output_stream.seek(0)
-
-                            media = MediaIoBaseUpload(
-                                output_stream,
-                                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                resumable=True,
-                            )
-
-                            if file_id:
-                                service.files().update(
-                                    fileId=file_id, media_body=media
-                                ).execute()
-                            else:
-                                file_metadata = {
-                                    "name": EXCEL_FILE_NAME,
-                                    "parents": [FOLDER_ID],
-                                }
-                                service.files().create(
-                                    body=file_metadata, media_body=media
-                                ).execute()
-
-                            st.cache_data.clear()
-                            st.success(
-                                f"🎉 Đã đồng bộ thành công hoạt chất '{hoat_chat_name}' vào Google Drive!"
-                            )
-                    except Exception as e:
-                        st.error(f"❌ Lỗi cập nhật file Excel: {e}")
+                    st.cache_data.clear()
+                    st.success(f"🎉 Đã lưu thành công dữ liệu thuốc **{hoat_chat_name}** lên Google Drive!")
+                    st.rerun()
