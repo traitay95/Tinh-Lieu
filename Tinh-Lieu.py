@@ -19,21 +19,43 @@ SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
 def get_drive_service():
     creds = None
-    if os.path.exists("token.json"):
+
+    # 1. Ưu tiên lấy token từ Streamlit Secrets (Dành cho Streamlit Cloud)
+    if "google_drive" in st.secrets and "token" in st.secrets["google_drive"]:
+        try:
+            token_info = json.loads(st.secrets["google_drive"]["token"])
+            creds = Credentials.from_authorized_user_info(token_info, SCOPES)
+        except Exception as e:
+            st.error(f"Lỗi đọc Token từ Streamlit Secrets: {e}")
+
+    # 2. Nếu không có trong Secrets thì đọc file token.json ở máy cục bộ (Dành cho Chạy Local)
+    elif os.path.exists("token.json"):
         creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+
+    # 3. Kiếm tra và Tự động Làm mới (Refresh) Token nếu hết hạn
+    if creds and creds.expired and creds.refresh_token:
+        try:
             creds.refresh(Request())
+        except Exception as e:
+            st.error(f"Không thể refresh token: {e}")
+            creds = None
+
+    # 4. Nếu vẫn chưa có Creds hợp lệ và đang ở môi trường Local -> Đăng nhập OAuth
+    if not creds or not creds.valid:
+        if os.path.exists("credentials.json"):
+            flow = InstalledAppFlow.from_client_secrets_file(
+                "credentials.json", SCOPES
+            )
+            creds = flow.run_local_server(port=0)
+            # Lưu lại token vào máy local để dùng sau này
+            with open("token.json", "w") as token_file:
+                token_file.write(creds.to_json())
         else:
-            if os.path.exists("credentials.json"):
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    "credentials.json", SCOPES
-                )
-                creds = flow.run_local_server(port=0)
-                with open("token.json", "w") as token:
-                    token.write(creds.to_json())
-            else:
-                return None
+            st.error(
+                "❌ Không tìm thấy xác thực Google Drive (cần cấu hình Secrets hoặc file credentials.json)."
+            )
+            return None
+
     return build("drive", "v3", credentials=creds)
 
 
