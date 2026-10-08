@@ -549,21 +549,36 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                 placeholder="Ví dụ: Paracetamol",
                 key="new_hoat_chat_input",
             )
-            if st.session_state.get("last_selected_option") != CREATE_NEW_OPTION:
+            if (
+                st.session_state.get("last_selected_option")
+                != CREATE_NEW_OPTION
+            ):
+                reset_biet_duoc_widgets()  # <--- Xóa widget state cũ
                 st.session_state["last_selected_option"] = CREATE_NEW_OPTION
                 st.session_state["edit_lieu_dung"] = ""
                 st.session_state["edit_quy_cach"] = ""
                 st.session_state["edit_chi_dinh"] = ""
                 st.session_state["edit_chong_chi_dinh"] = ""
-                st.session_state["edit_biet_duoc_list"] = [{"id": 0, "ten": "", "link": ""}]
+                st.session_state["edit_biet_duoc_list"] = [
+                    {"id": 0, "ten": "", "link": ""}
+                ]
         else:
             final_hoat_chat_name = selected_option
             if st.session_state.get("last_selected_option") != selected_option:
+                reset_biet_duoc_widgets()  # <--- Xóa widget state cũ
                 st.session_state["last_selected_option"] = selected_option
-                st.session_state["edit_lieu_dung"] = thuoc_dict.get(selected_option, "")
-                st.session_state["edit_quy_cach"] = thuoc_quycach_dict.get(selected_option, "")
-                st.session_state["edit_chi_dinh"] = thuoc_chidinh_dict.get(selected_option, "")
-                st.session_state["edit_chong_chi_dinh"] = thuoc_chongchidinh_dict.get(selected_option, "")
+                st.session_state["edit_lieu_dung"] = thuoc_dict.get(
+                    selected_option, ""
+                )
+                st.session_state["edit_quy_cach"] = thuoc_quycach_dict.get(
+                    selected_option, ""
+                )
+                st.session_state["edit_chi_dinh"] = thuoc_chidinh_dict.get(
+                    selected_option, ""
+                )
+                st.session_state["edit_chong_chi_dinh"] = (
+                    thuoc_chongchidinh_dict.get(selected_option, "")
+                )
 
                 bd_old = thuoc_bietduoc_dict.get(selected_option, [])
                 new_list = []
@@ -601,6 +616,13 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
 
         st.markdown("---")
         st.write("### 💊 Danh sách Biệt dược & File đính kèm (Cột F)")
+        def reset_biet_duoc_widgets():
+            # Xóa các key bd_ten_... cũ trong session_state để Streamlit load lại từ đầu
+            keys_to_delete = [
+                k for k in st.session_state.keys() if k.startswith("bd_ten_")
+            ]
+            for k in keys_to_delete:
+                del st.session_state[k]
 
         def add_biet_duoc_row():
             max_id = max(
@@ -678,11 +700,16 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
             row_id = item["id"]
             c1, c2, c3 = st.columns([3, 3, 1])
 
+            # Nếu key chưa có trong session_state thì khởi tạo bằng giá trị tên từ Excel
+            widget_key = f"bd_ten_{row_id}"
+            if widget_key not in st.session_state:
+                st.session_state[widget_key] = item.get("ten", "")
+
             with c1:
+                # Không truyền `value=`, Streamlit sẽ tự bắt theo `key`
                 bd_ten = st.text_input(
                     f"Tên biệt dược #{idx+1}",
-                    value=item.get("ten", ""),
-                    key=f"bd_ten_{row_id}",
+                    key=widget_key,
                     placeholder="Ví dụ: Efferalgan 500mg",
                 )
 
@@ -694,7 +721,9 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                 )
                 existing_link = item.get("link", "")
                 if existing_link:
-                    st.caption(f"🔗 [File PDF đã có trên Drive]({existing_link})")
+                    st.caption(
+                        f"🔗 [File PDF đã có trên Drive]({existing_link})"
+                    )
 
             with c3:
                 st.write("")
