@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 import streamlit as st
 
 # --- CẤU HÌNH GOOGLE DRIVE ---
-FOLDER_ID = "1GbnN63XfIc1UmR_2XW8LPePpFxvBB__e"
+FOLDER_ID = "1qGnaemy3xSp1xz4OA5PjQGacZd56XwVV"
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 EXCEL_FILE_NAME = "danh_sach_thuoc_lieu_dung.xlsx"
 
