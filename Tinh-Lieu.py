@@ -140,7 +140,6 @@ st.markdown("---")
 
 
 # --- HÀM ĐỌC DỮ LIỆU EXCEL TỪ GOOGLE DRIVE HOẶC FILE UPLOAD ---
-@st.cache_data(show_spinner=False)
 def load_excel_data_from_drive_or_file(uploaded_file_bytes=None):
     try:
         file_stream = None
