@@ -1,23 +1,27 @@
 import io
 import json
 import math
+import os
 import re
+import sqlite3
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-import openpyxl
-from openpyxl import load_workbook
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload, MediaIoBaseUpload
 import streamlit as st
 
-# --- CẤU HÌNH GOOGLE DRIVE ---
+# ==============================================================================
+# CẤU HÌNH GOOGLE DRIVE & DATABASE
+# ==============================================================================
 FOLDER_ID = "1qGnaemy3xSp1xz4OA5PjQGacZd56XwVV"
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
-EXCEL_FILE_NAME = "danh_sach_thuoc_lieu_dung.xlsx"
+DB_FILE_NAME = "thuoc_database.db"
+LOCAL_DB_PATH = "/tmp/thuoc_database.db"
 
 
 @st.cache_resource
 def get_drive_service():
+    """Khởi tạo Drive API Client từ Streamlit Secrets."""
     client_id = st.secrets["client_id"]
     client_secret = st.secrets["client_secret"]
     refresh_token = st.secrets["refresh_token"]
@@ -37,9 +41,7 @@ def get_drive_service():
 
 def search_file_in_folder(service, filename, folder_id):
     """Tìm file theo tên trong FOLDER_ID cụ thể."""
-    query = (
-        f"'{folder_id}' in parents and name = '{filename}' and trashed = false"
-    )
+    query = f"'{folder_id}' in parents and name = '{filename}' and trashed = false"
     results = (
         service.files()
         .list(q=query, spaces="drive", fields="files(id, name)")
@@ -65,7 +67,7 @@ def extract_file_id_from_link(link):
 
 
 def delete_file_from_drive(file_link_or_id):
-    """Xóa file PDF khỏi Google Drive để dọn dẹp bộ nhớ."""
+    """Xóa file PDF khỏi Google Drive."""
     try:
         service = get_drive_service()
         if not service or not file_link_or_id:
@@ -78,6 +80,7 @@ def delete_file_from_drive(file_link_or_id):
 
 
 def upload_pdf_to_drive(uploaded_file):
+    """Upload file PDF đính kèm lên Google Drive."""
     try:
         service = get_drive_service()
         if not service:
@@ -108,27 +111,158 @@ def upload_pdf_to_drive(uploaded_file):
         return None, None
 
 
-def save_excel_to_drive(service, wb):
-    """Hàm phụ trợ lưu Workbook đè lên Google Drive."""
-    out_stream = io.BytesIO()
-    wb.save(out_stream)
-    out_stream.seek(0)
-
-    media = MediaIoBaseUpload(
-        out_stream,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        resumable=True,
+# ==============================================================================
+# HÀM XỬ LÝ SQLITE & ĐỒNG BỘ GOOGLE DRIVE
+# ==============================================================================
+def init_db(db_path=LOCAL_DB_PATH):
+    """Khởi tạo bảng cơ sở dữ liệu SQLite nếu chưa tồn tại."""
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS danh_sach_thuoc (
+            hoat_chat TEXT PRIMARY KEY,
+            lieu_dung TEXT,
+            quy_cach TEXT,
+            chi_dinh TEXT,
+            chong_chi_dinh TEXT,
+            biet_duoc_json TEXT
+        )
+    """
     )
-
-    file_id = search_file_in_folder(service, EXCEL_FILE_NAME, FOLDER_ID)
-    if file_id:
-        service.files().update(fileId=file_id, media_body=media).execute()
-    else:
-        file_metadata = {"name": EXCEL_FILE_NAME, "parents": [FOLDER_ID]}
-        service.files().create(body=file_metadata, media_body=media).execute()
+    conn.commit()
+    conn.close()
 
 
-# --- CẤU HÌNH TRANG WEB ---
+def download_db_from_drive():
+    """Tải file database từ Drive về thư mục tạm /tmp/."""
+    try:
+        service = get_drive_service()
+        if not service:
+            init_db()
+            return
+
+        file_id = search_file_in_folder(service, DB_FILE_NAME, FOLDER_ID)
+        if file_id:
+            request = service.files().get_media(fileId=file_id)
+            with open(LOCAL_DB_PATH, "wb") as f:
+                downloader = MediaIoBaseDownload(f, request)
+                done = False
+                while not done:
+                    _, done = downloader.next_chunk()
+        else:
+            init_db()
+    except Exception as e:
+        st.error(f"❌ Lỗi tải Database từ Drive: {e}")
+        init_db()
+
+
+def sync_db_to_drive():
+    """Đồng bộ (Upload đè) file Database từ /tmp/ lên Google Drive."""
+    try:
+        service = get_drive_service()
+        if not service or not os.path.exists(LOCAL_DB_PATH):
+            return
+
+        media = MediaFileUpload(
+            LOCAL_DB_PATH, mimetype="application/x-sqlite3", resumable=True
+        )
+        file_id = search_file_in_folder(service, DB_FILE_NAME, FOLDER_ID)
+
+        if file_id:
+            service.files().update(fileId=file_id, media_body=media).execute()
+        else:
+            file_metadata = {"name": DB_FILE_NAME, "parents": [FOLDER_ID]}
+            service.files().create(body=file_metadata, media_body=media).execute()
+    except Exception as e:
+        st.error(f"❌ Lỗi đồng bộ Database lên Drive: {e}")
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_data_from_sqlite():
+    """Đọc dữ liệu từ file SQLite đã tải về."""
+    if not os.path.exists(LOCAL_DB_PATH):
+        download_db_from_drive()
+
+    try:
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT hoat_chat, lieu_dung, quy_cach, chi_dinh, chong_chi_dinh, biet_duoc_json FROM danh_sach_thuoc"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        thuoc_dict = {}
+        thuoc_quycach_dict = {}
+        thuoc_chidinh_dict = {}
+        thuoc_chongchidinh_dict = {}
+        thuoc_bietduoc_dict = {}
+
+        for row in rows:
+            key = str(row[0]).strip()
+            thuoc_dict[key] = str(row[1] or "").strip()
+            thuoc_quycach_dict[key] = str(row[2] or "").strip()
+            thuoc_chidinh_dict[key] = str(row[3] or "").strip()
+            thuoc_chongchidinh_dict[key] = str(row[4] or "").strip()
+
+            biet_duoc_raw = str(row[5] or "").strip()
+            bd_list = []
+            if biet_duoc_raw:
+                try:
+                    bd_list = json.loads(biet_duoc_raw)
+                except Exception:
+                    bd_list = [{"ten": biet_duoc_raw, "link": ""}]
+            thuoc_bietduoc_dict[key] = bd_list
+
+        return (
+            thuoc_dict,
+            thuoc_quycach_dict,
+            thuoc_chidinh_dict,
+            thuoc_chongchidinh_dict,
+            thuoc_bietduoc_dict,
+        )
+    except Exception as e:
+        st.error(f"❌ Lỗi truy vấn SQLite: {e}")
+        return {}, {}, {}, {}, {}
+
+
+def save_or_update_thuoc_db(
+    hoat_chat, lieu_dung, quy_cach, chi_dinh, chong_chi_dinh, biet_duoc_data
+):
+    """Lưu hoặc cập nhật một hoạt chất vào SQLite và đẩy lên Drive."""
+    conn = sqlite3.connect(LOCAL_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO danh_sach_thuoc (hoat_chat, lieu_dung, quy_cach, chi_dinh, chong_chi_dinh, biet_duoc_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(hoat_chat) DO UPDATE SET
+            lieu_dung=excluded.lieu_dung,
+            quy_cach=excluded.quy_cach,
+            chi_dinh=excluded.chi_dinh,
+            chong_chi_dinh=excluded.chong_chi_dinh,
+            biet_duoc_json=excluded.biet_duoc_json
+    """,
+        (
+            hoat_chat,
+            lieu_dung,
+            quy_cach,
+            chi_dinh,
+            chong_chi_dinh,
+            json.dumps(biet_duoc_data, ensure_ascii=False),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    # Đồng bộ lập tức lên Drive
+    sync_db_to_drive()
+
+
+# ==============================================================================
+# CẤU HÌNH TRANG WEB STREAMLIT
+# ==============================================================================
 st.set_page_config(
     page_title="Công Cụ Tính Liều Thuốc - Minh Nhân Professional",
     page_icon="🩺",
@@ -142,114 +276,30 @@ st.markdown(
 )
 st.markdown("---")
 
+# Tải dữ liệu SQLite khi khởi động
+(
+    thuoc_dict,
+    thuoc_quycach_dict,
+    thuoc_chidinh_dict,
+    thuoc_chongchidinh_dict,
+    thuoc_bietduoc_dict,
+) = load_data_from_sqlite()
 
-# --- HÀM ĐỌC DỮ LIỆU EXCEL TỪ GOOGLE DRIVE HOẶC FILE UPLOAD ---
-@st.cache_data(ttl=300, show_spinner=False)
-def load_excel_data_from_drive_or_file(uploaded_file_bytes=None):
-    try:
-        file_stream = None
-
-        if uploaded_file_bytes is not None:
-            file_stream = io.BytesIO(uploaded_file_bytes)
-        else:
-            service = get_drive_service()
-            if service:
-                file_id = search_file_in_folder(
-                    service, EXCEL_FILE_NAME, FOLDER_ID
-                )
-                if file_id:
-                    request = service.files().get_media(fileId=file_id)
-                    file_stream = io.BytesIO()
-                    downloader = MediaIoBaseDownload(file_stream, request)
-                    done = False
-                    while not done:
-                        _, done = downloader.next_chunk()
-                    file_stream.seek(0)
-
-        if file_stream is None:
-            return {}, {}, {}, {}, {}
-
-        wb = load_workbook(file_stream)
-        ws = wb.active
-
-        thuoc_dict = {}
-        thuoc_quycach_dict = {}
-        thuoc_chidinh_dict = {}
-        thuoc_chongchidinh_dict = {}
-        thuoc_bietduoc_dict = {}
-
-        for row in ws.iter_rows(min_row=1, values_only=True):
-            if row and row[0]:  # Cột A: Tên thuốc / Hoạt chất
-                key = str(row[0]).strip()
-
-                thuoc_dict[key] = (
-                    str(row[1]).strip() if len(row) > 1 and row[1] else ""
-                )
-                thuoc_quycach_dict[key] = (
-                    str(row[2]).strip() if len(row) > 2 and row[2] else ""
-                )
-                thuoc_chidinh_dict[key] = (
-                    str(row[3]).strip() if len(row) > 3 and row[3] else ""
-                )
-                thuoc_chongchidinh_dict[key] = (
-                    str(row[4]).strip() if len(row) > 4 and row[4] else ""
-                )
-
-                biet_duoc_raw = (
-                    str(row[5]).strip() if len(row) > 5 and row[5] else ""
-                )
-                bd_list = []
-                if biet_duoc_raw:
-                    try:
-                        bd_list = json.loads(biet_duoc_raw)
-                    except Exception:
-                        bd_list = [{"ten": biet_duoc_raw, "link": ""}]
-                thuoc_bietduoc_dict[key] = bd_list
-
-        return (
-            thuoc_dict,
-            thuoc_quycach_dict,
-            thuoc_chidinh_dict,
-            thuoc_chongchidinh_dict,
-            thuoc_bietduoc_dict,
-        )
-    except Exception as e:
-        st.error(f"❌ Lỗi đọc dữ liệu Excel: {e}")
-        return {}, {}, {}, {}, {}
-
-
-# --- KHU VỰC QUẢN LÝ FILE EXCEL ---
+# Sidebar quản lý
 st.sidebar.header("⚙️ Quản lý Dữ liệu")
-uploaded_file = st.sidebar.file_uploader(
-    "Tải lên file Excel danh sách thuốc (.xlsx)", type=["xlsx"]
-)
+if st.sidebar.button("🔄 Tải lại dữ liệu từ Google Drive"):
+    download_db_from_drive()
+    st.cache_data.clear()
+    st.rerun()
 
-if uploaded_file is None:
-    (
-        thuoc_dict,
-        thuoc_quycach_dict,
-        thuoc_chidinh_dict,
-        thuoc_chongchidinh_dict,
-        thuoc_bietduoc_dict,
-    ) = load_excel_data_from_drive_or_file()
-    if thuoc_dict:
-        st.sidebar.success("✅ Đang sử dụng dữ liệu Excel từ Google Drive.")
-    else:
-        st.sidebar.warning(
-            "⚠️ Chưa tìm thấy file Excel trên Drive hoặc chưa kết nối."
-        )
+if thuoc_dict:
+    st.sidebar.success("✅ Đang kết nối SQLite Database thành công.")
 else:
-    (
-        thuoc_dict,
-        thuoc_quycach_dict,
-        thuoc_chidinh_dict,
-        thuoc_chongchidinh_dict,
-        thuoc_bietduoc_dict,
-    ) = load_excel_data_from_drive_or_file(uploaded_file.getvalue())
-    st.sidebar.success("🎉 Đã cập nhật dữ liệu từ file đính kèm!")
-with st.expander("💊 Danh sách 5 thuốc mới cập nhật bấm để xem", expanded=False):
+    st.sidebar.warning("⚠️ Đang khởi tạo bộ lưu trữ SQLite Database mới.")
+
+with st.expander("💊 Danh sách 5 file PDF mới đính kèm gần đây", expanded=False):
     try:
-        service = get_drive_service()  # Đã khởi tạo service đúng cách
+        service = get_drive_service()
         results = (
             service.files()
             .list(
@@ -413,7 +463,7 @@ if chon_tab == "⚖️ Tính Liều Theo Cân Nặng":
                         st.warning(f"👉 **Đề nghị:** {lieu_chon}")
                 else:
                     st.warning(
-                        "⚠️ Chưa có cấu hình quy cách (Cột C) trong file Excel."
+                        "⚠️ Chưa có cấu hình quy cách hàm lượng trong Database."
                     )
         else:
             st.info("Vui lòng chọn thuốc, liều và nhập cân nặng > 0.")
@@ -515,6 +565,7 @@ elif chon_tab == "🖊️ Tính Số Lượng Bút Insulin Theo Ngày Kê":
         else:
             st.info("Vui lòng nhập liều tiêm sáng hoặc chiều để tính toán.")
 
+
 # ==============================================================================
 # CHỨC NĂNG 3: TRANG THÊM/CẬP NHẬT HOẠT CHẤT & BIỆT DƯỢC
 # ==============================================================================
@@ -544,7 +595,6 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
         st.markdown("---")
         st.subheader("➕ Thêm mới / Cập nhật Thuốc & Biệt dược")
 
-        # --- 1. ĐỊNH NGHĨA HÀM RESET WIDGETS TRƯỚC KHI SỬ DỤNG ---
         def reset_biet_duoc_widgets():
             """Xóa toàn bộ widget state cũ của tên biệt dược và uploader PDF."""
             keys_to_delete = [
@@ -555,7 +605,6 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
             for k in keys_to_delete:
                 del st.session_state[k]
 
-        # Khởi tạo Session State mặc định
         if "edit_lieu_dung" not in st.session_state:
             st.session_state["edit_lieu_dung"] = ""
         if "edit_quy_cach" not in st.session_state:
@@ -581,10 +630,10 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
 
         final_hoat_chat_name = ""
 
-        # --- 2. XỬ LÝ CHUYỂN ĐỔI GIỮA THUỐC MỚI VÀ THUỐC CŨ ---
+        # Xử lý chuyển đổi giữa thuốc mới và cũ
         if selected_option == CREATE_NEW_OPTION:
             final_hoat_chat_name = st.text_input(
-                "👉 Nhập Tên Hoạt chất chính thức mới (Cột A) *: ",
+                "👉 Nhập Tên Hoạt chất chính thức mới *: ",
                 placeholder="Ví dụ: Paracetamol",
                 key="new_hoat_chat_input",
             )
@@ -592,7 +641,7 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                 st.session_state.get("last_selected_option")
                 != CREATE_NEW_OPTION
             ):
-                reset_biet_duoc_widgets()  # Hàm đã được định nghĩa ở trên
+                reset_biet_duoc_widgets()
                 st.session_state["last_selected_option"] = CREATE_NEW_OPTION
                 st.session_state["edit_lieu_dung"] = ""
                 st.session_state["edit_quy_cach"] = ""
@@ -604,7 +653,7 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
         else:
             final_hoat_chat_name = selected_option
             if st.session_state.get("last_selected_option") != selected_option:
-                reset_biet_duoc_widgets()  # Hàm đã được định nghĩa ở trên
+                reset_biet_duoc_widgets()
                 st.session_state["last_selected_option"] = selected_option
                 st.session_state["edit_lieu_dung"] = thuoc_dict.get(
                     selected_option, ""
@@ -641,24 +690,24 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
             )
 
         lieu_dung_input = st.text_input(
-            "2. Quy định liều dùng (Cột B - cách nhau bởi dấu ';') *: ",
+            "2. Quy định liều dùng (cách nhau bởi dấu ';') *: ",
             key="edit_lieu_dung",
             placeholder="Ví dụ: 10 mg/kg/ngày; 15 mg/kg/ngày",
         )
         quy_cach_input = st.text_input(
-            "3. Quy cách hàm lượng (Cột C - cách nhau bởi dấu ';'):",
+            "3. Quy cách hàm lượng (cách nhau bởi dấu ';'):",
             key="edit_quy_cach",
             placeholder="Ví dụ: 80; 150; 250; 500",
         )
         chi_dinh_input = st.text_area(
-            "4. Chỉ định (Cột D):", key="edit_chi_dinh", height=80
+            "4. Chỉ định:", key="edit_chi_dinh", height=80
         )
         chong_chi_dinh_input = st.text_area(
-            "5. Chống chỉ định (Cột E):", key="edit_chong_chi_dinh", height=80
+            "5. Chống chỉ định:", key="edit_chong_chi_dinh", height=80
         )
 
         st.markdown("---")
-        st.write("### 💊 Danh sách Biệt dược & File đính kèm (Cột F)")
+        st.write("### 💊 Danh sách Biệt dược & File đính kèm")
 
         def add_biet_duoc_row():
             max_id = (
@@ -675,8 +724,8 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                 {"id": max_id, "ten": "", "link": ""}
             )
 
-        def remove_and_sync_excel(row_id):
-            """Xóa dòng biệt dược, xóa file Drive (nếu có) và cập nhật thẳng vào Excel trên Drive."""
+        def remove_and_sync_db(row_id):
+            """Xóa dòng biệt dược, xóa file PDF trên Drive và cập nhật thẳng SQLite/Drive."""
             target_item = None
             for item in st.session_state["edit_biet_duoc_list"]:
                 if item["id"] == row_id:
@@ -686,9 +735,7 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
             if not target_item:
                 return
 
-            with st.spinner(
-                "Đang xóa biệt dược và cập nhật lại file Excel trên Drive..."
-            ):
+            with st.spinner("Đang xóa biệt dược và đồng bộ dữ liệu..."):
                 if target_item.get("link"):
                     delete_file_from_drive(target_item["link"])
 
@@ -702,7 +749,6 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                         {"id": 0, "ten": "", "link": ""}
                     ]
 
-                # Xóa key tương ứng trong session_state
                 if f"bd_ten_{row_id}" in st.session_state:
                     del st.session_state[f"bd_ten_{row_id}"]
                 if f"bd_pdf_{row_id}" in st.session_state:
@@ -718,43 +764,20 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
 
                 hoat_chat_name = final_hoat_chat_name.strip()
                 if hoat_chat_name and selected_option != CREATE_NEW_OPTION:
-                    service = get_drive_service()
-                    file_id = search_file_in_folder(
-                        service, EXCEL_FILE_NAME, FOLDER_ID
+                    save_or_update_thuoc_db(
+                        hoat_chat_name,
+                        lieu_dung_input.strip(),
+                        quy_cach_input.strip(),
+                        chi_dinh_input.strip(),
+                        chong_chi_dinh_input.strip(),
+                        updated_bd_data,
                     )
-                    if file_id:
-                        request = service.files().get_media(fileId=file_id)
-                        file_stream = io.BytesIO()
-                        downloader = MediaIoBaseDownload(file_stream, request)
-                        done = False
-                        while not done:
-                            _, done = downloader.next_chunk()
-                        file_stream.seek(0)
-                        wb = load_workbook(file_stream)
-                        ws = wb.active
+                    st.cache_data.clear()
 
-                        for r in range(1, ws.max_row + 1):
-                            cell_val = ws.cell(row=r, column=1).value
-                            if (
-                                cell_val
-                                and str(cell_val).strip() == hoat_chat_name
-                            ):
-                                ws.cell(
-                                    row=r,
-                                    column=6,
-                                    value=json.dumps(
-                                        updated_bd_data, ensure_ascii=False
-                                    ),
-                                )
-                                break
-
-                        save_excel_to_drive(service, wb)
-                        st.cache_data.clear()
-
-            st.toast("🗑️ Đã xóa biệt dược và đồng bộ Excel trên Drive!")
+            st.toast("🗑️ Đã xóa biệt dược và đồng bộ Database!")
             st.rerun()
 
-        # --- 3. HIỂN THỊ DANH SÁCH BIỆT DƯỢC VÀ ĐỔ DỮ LIỆU ---
+        # Hiển thị danh sách biệt dược
         updated_biet_duoc_list = []
         for idx, item in enumerate(st.session_state["edit_biet_duoc_list"]):
             row_id = item["id"]
@@ -787,7 +810,7 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
                 st.write("")
                 st.write("")
                 if st.button("❌ Xóa", key=f"btn_del_{row_id}"):
-                    remove_and_sync_excel(row_id)
+                    remove_and_sync_db(row_id)
 
             updated_biet_duoc_list.append({
                 "id": row_id,
@@ -802,128 +825,66 @@ elif chon_tab == "➕ Thêm/Cập Nhật Dữ Liệu Thuốc":
 
         st.markdown("---")
 
-        # --- 4. NÚT LƯU DỮ LIỆU LÊN DRIVE ---
-        if st.button("💾 Lưu Toàn Bộ Dữ Liệu Lên Google Drive", type="primary"):
+        # NÚT LƯU DỮ LIỆU LÊN DATABASE & DRIVE
+        if st.button("💾 Lưu Toàn Bộ Dữ Liệu Lên SQLite & Google Drive", type="primary"):
             hoat_chat_final = final_hoat_chat_name.strip()
 
             if not hoat_chat_final:
-                st.error("❌ Vui lòng nhập Tên Hoạt chất chính thức (Cột A)!")
+                st.error("❌ Vui lòng nhập Tên Hoạt chất chính thức!")
             elif not lieu_dung_input.strip():
-                st.error("❌ Vui lòng nhập Quy định liều dùng (Cột B)!")
+                st.error("❌ Vui lòng nhập Quy định liều dùng!")
             else:
-                with st.spinner(
-                    "Đang xử lý tải file PDF và cập nhật file Excel lên Drive..."
-                ):
-                    service = get_drive_service()
-                    if not service:
-                        st.error("❌ Lỗi kết nối Drive.")
-                    else:
-                        old_bd_list = thuoc_bietduoc_dict.get(
-                            hoat_chat_final, []
-                        )
-                        old_bd_map = {
-                            b.get("ten", "").strip().lower(): b.get("link", "")
-                            for b in old_bd_list
-                            if b.get("ten")
-                        }
+                with st.spinner("Đang xử lý tải file PDF và lưu vào Database..."):
+                    old_bd_list = thuoc_bietduoc_dict.get(
+                        hoat_chat_final, []
+                    )
+                    old_bd_map = {
+                        b.get("ten", "").strip().lower(): b.get("link", "")
+                        for b in old_bd_list
+                        if b.get("ten")
+                    }
 
-                        final_bd_json_data = []
+                    final_bd_json_data = []
 
-                        for bd_item in updated_biet_duoc_list:
-                            ten_bd_str = bd_item["ten"].strip()
-                            if not ten_bd_str:
-                                continue
+                    for bd_item in updated_biet_duoc_list:
+                        ten_bd_str = bd_item["ten"].strip()
+                        if not ten_bd_str:
+                            continue
 
-                            ten_bd_lower = ten_bd_str.lower()
-                            pdf_uploaded = bd_item["pdf_file"]
-                            link_to_use = bd_item["link"]
+                        ten_bd_lower = ten_bd_str.lower()
+                        pdf_uploaded = bd_item["pdf_file"]
+                        link_to_use = bd_item["link"]
 
-                            if pdf_uploaded is not None:
-                                if (
-                                    ten_bd_lower in old_bd_map
-                                    and old_bd_map[ten_bd_lower]
-                                ):
-                                    old_pdf_link = old_bd_map[ten_bd_lower]
-                                    delete_file_from_drive(old_pdf_link)
-
-                                _, new_link = upload_pdf_to_drive(pdf_uploaded)
-                                if new_link:
-                                    link_to_use = new_link
-
-                            final_bd_json_data.append({
-                                "ten": ten_bd_str,
-                                "link": link_to_use,
-                            })
-
-                        file_id = search_file_in_folder(
-                            service, EXCEL_FILE_NAME, FOLDER_ID
-                        )
-                        if file_id:
-                            request = service.files().get_media(fileId=file_id)
-                            file_stream = io.BytesIO()
-                            downloader = MediaIoBaseDownload(
-                                file_stream, request
-                            )
-                            done = False
-                            while not done:
-                                _, done = downloader.next_chunk()
-                            file_stream.seek(0)
-                            wb = load_workbook(file_stream)
-                        else:
-                            wb = openpyxl.Workbook()
-
-                        ws = wb.active
-
-                        row_found = None
-                        for r in range(1, ws.max_row + 1):
-                            cell_val = ws.cell(row=r, column=1).value
+                        if pdf_uploaded is not None:
                             if (
-                                cell_val
-                                and str(cell_val).strip().lower()
-                                == hoat_chat_final.lower()
+                                ten_bd_lower in old_bd_map
+                                and old_bd_map[ten_bd_lower]
                             ):
-                                row_found = r
-                                break
+                                old_pdf_link = old_bd_map[ten_bd_lower]
+                                delete_file_from_drive(old_pdf_link)
 
-                        if row_found is None:
-                            row_found = (
-                                ws.max_row + 1
-                                if ws.cell(row=1, column=1).value
-                                else 1
-                            )
+                            _, new_link = upload_pdf_to_drive(pdf_uploaded)
+                            if new_link:
+                                link_to_use = new_link
 
-                        ws.cell(row=row_found, column=1, value=hoat_chat_final)
-                        ws.cell(
-                            row=row_found,
-                            column=2,
-                            value=lieu_dung_input.strip(),
-                        )
-                        ws.cell(
-                            row=row_found, column=3, value=quy_cach_input.strip()
-                        )
-                        ws.cell(
-                            row=row_found, column=4, value=chi_dinh_input.strip()
-                        )
-                        ws.cell(
-                            row=row_found,
-                            column=5,
-                            value=chong_chi_dinh_input.strip(),
-                        )
-                        ws.cell(
-                            row=row_found,
-                            column=6,
-                            value=json.dumps(
-                                final_bd_json_data, ensure_ascii=False
-                            ),
-                        )
+                        final_bd_json_data.append({
+                            "ten": ten_bd_str,
+                            "link": link_to_use,
+                        })
 
-                        save_excel_to_drive(service, wb)
+                    # Lưu vào SQLite và đồng bộ ngay lên Drive
+                    save_or_update_thuoc_db(
+                        hoat_chat_final,
+                        lieu_dung_input.strip(),
+                        quy_cach_input.strip(),
+                        chi_dinh_input.strip(),
+                        chong_chi_dinh_input.strip(),
+                        final_bd_json_data,
+                    )
+                    st.cache_data.clear()
 
-                        st.cache_data.clear()
-                        st.success(
-                            f"🎉 Đã lưu và cập nhật thành công thuốc **{hoat_chat_final}** lên Google Drive!"
-                        )
-                        st.rerun()
-                        st.cache_data.clear()
-                        st.success(f"🎉 Đã lưu và cập nhật thành công thuốc **{hoat_chat_final}** lên Google Drive!")
-                        st.rerun()
+                    st.toast(
+                        f"🎉 Đã lưu thành công thuốc **{hoat_chat_final}** vào Database!",
+                        icon="✅",
+                    )
+                    st.rerun()
